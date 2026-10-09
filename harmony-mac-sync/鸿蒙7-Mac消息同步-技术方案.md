@@ -13,7 +13,7 @@
 
 一句话结论：**短信、通讯录、来电能同步到 Mac；App 推送通知不能。**
 
-方案是 **Mac 侧蓝牙直连**——用标准蓝牙 MAP / PBAP / HFP 协议直接跟手机通信。手机端零安装、不碰鸿蒙权限。手机已确认暴露这三类服务，通道成立。
+方案是 **Mac 侧蓝牙直连**——用标准蓝牙 MAP / PBAP / HFP 协议直接跟手机通信。手机端零安装、不碰鸿蒙权限。手机已确认暴露这三类服务；MAP 通道已实测打通，可读取短信列表（见 §7.2）。
 
 App 推送通知的缺口来自硬约束：鸿蒙把「通知监听」划为系统签名级权限、把「短信读取」划为 ACL 受限权限，第三方应用拿不到；官方跨设备通知同步只跑在华为分布式软总线（超级终端）内部，Mac 不在这个生态内。
 
@@ -375,32 +375,95 @@ CREATE UNIQUE INDEX idx_call_handle ON call_record(handle);
 
 **结论：MAP / PBAP / HFP 三类服务均在，方案成立。**
 
-### 7.2 待验证：OBEX 握手
+### 7.2 OBEX 全链路（2026-10-09 实测通过）
 
-在写 Swift App 之前，用 Python + PyObjC 快速验证，成本最低：
+在 Mac 上用 Swift + IOBluetooth 直接收发 OBEX 报文（不经 `IOBluetoothOBEXSession`，以便逐字节对照），实测链路：
+
+| 步骤 | 请求 | 结果 |
+|---|---|---|
+| 1 | 打开 RFCOMM 通道 26 | 成功 |
+| 2 | `OBEX Connect`，Target = MAS UUID | `0xA0` |
+| 3 | `SETPATH` → `telecom` / `msg` / `inbox` | 三次 `0xA0` |
+| 4 | `GET x-bt/MAP-msg-listing` | 收全 450 452 字节，558 条记录 |
+| 5 | `GET x-bt/message`（正文） | 见 §7.3 |
+
+测试机型：华为 Pura 80 Pro（HarmonyOS 7）。
+
+#### 7.2.1 实测得到的三条报文规则
+
+这台手机的 MSE 实现与 OBEX 通用规范有几处出入，直接影响握手能否成功：
+
+**① 请求 opcode 的 final 位必须置位**
+
+OBEX 请求 opcode 的最高位表示"本请求到此为止"。`Connect` = `0x80`、`SETPATH` = `0x85` 天然带这一位，`GET` 则有两种写法：
+
+| 写法 | opcode | 服务端表现 |
+|---|---|---|
+| 非 final | `0x03` | 持续回 `0x90`（继续），572 次后超时 |
+| final | `0x83` | 一次请求即开始下发数据 |
+
+取列表与取正文都须用 `0x83`。这是整条链路里最关键的一处。
+
+**② Connection ID 在 SETPATH 与 GET 上的要求相反**
+
+Connection ID 是 `Connect` 之后服务端下发的会话标识，本机实测为 `00 00 00 01`，随 `SETPATH msg` 的响应一起到达。通用规范要求后续所有请求都带上它，而这台手机是：
 
 ```
-Python 3.13 + pyobjc-framework-IOBluetooth
+Connect : 0x80 | len | 10 00 FF FF | Target 头
+SETPATH : 0x85 | len | Flags | Constants | Name 头     ← 带 Connection ID 会被拒（0xC0）
+GET     : 0x83 | len | Connection ID | Type | Name     ← 不带 Connection ID 会被拒
+GET 续传: 0x83 | len | Connection ID                   ← 只带 Connection ID 即可
 ```
 
-验证内容：
+这两条各自用独立会话逐项试出：SETPATH 在不带 Connection ID 时返回 `0xA0`，带上时返回 `0xC0`；GET 相反。
 
-1. SDP 查询拿到 MSE 的 RFCOMM 通道号
-2. `IOBluetoothOBEXSession` 发 `OBEX Connect`，确认返回成功
-3. `SETPATH` 进 `telecom/msg/inbox`
-4. `GET` 拉 `x-bt/MAP-msg-listing`，打印原始报文
+**③ Target 头只需出现在 Connect**
 
-**这四步跑通，方案即成立。**
+`Connect` 以 MAS UUID 的大端字节序作为 Target 头，服务端会校验——换成别的 UUID 立即回 `0xC6`。后续请求不必再带。
 
-### 7.3 待验证：HFP 信令
+#### 7.2.2 目录结构
+
+`GET x-obex/folder-listing` 返回：
+
+```xml
+<folder-listing version="1.0"><folder name="telecom"/></folder-listing>
+```
+
+路径为 `telecom/msg/inbox`，逐级 `SETPATH` 进入。
+
+#### 7.2.3 列表数据
+
+`GET x-bt/MAP-msg-listing` 返回一份完整 XML（本机实测 450 452 字节，UTF-8）：
+
+```xml
+<?xml version='1.0' encoding='utf-8' standalone='yes'?>
+<MAP-msg-listing version="1.0">
+  <msg handle="400000000000839" subject="…" datetime="20261009T104036"
+       sender_addressing="106876251015490" read="no" type="SMS_GSM" />
+  …
+</MAP-msg-listing>
+```
+
+实测 558 条记录，`handle`、`datetime`、`sender_addressing`、`read`、`type` 五个属性解析正常，中文不乱码。
+
+> **分片处理**：服务端按约 64 KB 分片下发，每片以 `0x90` 提示还有后续。客户端收到 `0x90` 后继续发 `0x83` 取下一片，且**不能清空已累积的缓冲**——否则只会拿到最后一片。
+
+### 7.3 进行中：短信正文
+
+`GET x-bt/message` 取正文时服务端返回 `0xC0`。Connection ID 与 AppParams 的四种组合已逐一试过，不是原因；当前用一份 15 用例的探测程序收敛 handle 在 Name 头里的写法——十六进制串 / 十进制串 / 8 字节大端原始值，UTF-8 与 UTF-16BE 两种编码，带不带结尾 `0x0000`。每个用例单开一条 OBEX 会话，避免会话状态互相污染。
+
+列表已通、正文待定，§5 的架构不受影响。
+
+### 7.4 待验证：HFP 信令
 
 用 `IOBluetoothHandsFreeDevice` 连接手机 AG，打一个电话进来，观察是否能收到 `incomingCallWithNumber` 回调，同时确认**系统音频通道未被抢占**。
 
-### 7.4 验证清单
+### 7.5 验证清单
 
 - [x] 手机蓝牙配对成功，SDP 记录中出现 MAP / PBAP / HFP 服务
-- [ ] OBEX Connect + SETPATH + GET listing 全链路通
-- [ ] bMessage 正文解析正确，中文不乱码
+- [x] OBEX Connect + SETPATH + GET listing 全链路通
+- [x] 列表解析正确，558 条记录，中文不乱码
+- [ ] 正文请求写法确定，`x-bt/message` 能取回短信内容
 - [ ] MNS 事件订阅能收到新短信推送
 - [ ] HFP 能拿到来电号码，且不抢占系统音频
 - [ ] 手机重启 / 走出蓝牙范围后能自动重连
@@ -457,14 +520,30 @@ Python 3.13 + pyobjc-framework-IOBluetooth
 
 ### OBEX 操作码
 
+请求 opcode 的最高位为 final 位，单包请求须置位。
+
 | 操作 | 码值 | 用途 |
 |---|---|---|
 | Connect | `0x80` | 建立会话 |
 | Disconnect | `0x81` | 断开 |
-| Put | `0x02` | 发送 |
-| Get | `0x03` | 拉取 |
+| Put | `0x02` / `0x82` | 发送 |
+| Get | `0x03` / `0x83` | 拉取（本机须用 `0x83`） |
 | SetPath | `0x85` | 切换目录 |
 | Abort | `0xFF` | 中止 |
+
+### OBEX Header
+
+长度编码由 ID 高两位决定：`00` 取 2 字节、`01` 取 3 字节 + 变长值、`10` 取 3 字节、`11` 取 5 字节。
+
+| Header | ID | 用途 |
+|---|---|---|
+| Name | `0x01` | 文件名 / 目录名 / 消息 handle |
+| Type | `0x42` | 操作类型 |
+| Target | `0x46` | 目标服务 UUID |
+| Body | `0x48` | 数据段 |
+| EndOfBody | `0x49` | 数据段结束 |
+| AppParams | `0x4C` | 应用参数 |
+| Connection ID | `0xCB` | 会话标识 |
 
 ### MAP 关键 Header
 
@@ -472,7 +551,21 @@ Python 3.13 + pyobjc-framework-IOBluetooth
 |---|---|---|
 | Type | `x-bt/MAP-msg-listing` | 请求消息列表 |
 | Type | `x-bt/message` | 请求消息正文 |
+| Type | `x-obex/folder-listing` | 请求目录结构 |
 | Type | `x-bt/MAP-Event-Report` | 订阅事件（MNS） |
+| AppParams `0x14` | Charset，1 字节 | 正文字符集 |
+| AppParams `0x01` | Attachment，1 字节 | 是否含附件 |
+
+### 响应码
+
+| 码值 | 含义 |
+|---|---|
+| `0xA0` | 成功 |
+| `0x90` | 继续（还有后续分片） |
+| `0xC0` | 请求无效 |
+| `0xC6` | 内容类型不接受 |
+
+判定成功看 `op & 0xF0 == 0xA0`。
 
 ---
 
