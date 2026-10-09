@@ -199,16 +199,18 @@ Mac 作为蓝牙客户端，直接连接手机暴露的标准蓝牙服务。
 3. 向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
 4. Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
 5. 有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`
-6. Mac 收到事件 → 拉一次 inbox 列表 → 与已见 handle 比对 → 只对新增的那条取正文
+6. Mac 收到事件 → 拉一次收件箱列表 → 与已见 handle 比对 → 对新增的那条弹通知并落库
 
 | 操作 | OBEX 请求 | 目标路径 / 头 |
 |---|---|---|
 | 进入收件箱 | `SETPATH` | `telecom/msg/inbox` |
 | 订阅新消息事件 | `PUT` | Type: `x-bt/MAP-NotificationRegistration` |
 | 收事件 | `PUT`（手机发起） | Type: `x-bt/MAP-Event-Report` |
-| 列消息 | `GET` | Type: `x-bt/MAP-msg-listing` |
-| 读正文 | `GET` | Type: `x-bt/message`，Name: `<handle>` |
+| 列消息 | `GET` | Type: `x-bt/MAP-msg-listing`，AppParams `0x01` 限条数 |
+| 读正文（可选） | `GET` | Type: `x-bt/message`，Name: `<handle>` |
 | 回上级目录 | `SETPATH` | 空字符串（backup 语义） |
+
+短信文本本身就在列表的 `subject` 属性里（见 §7.2.3），所以新短信的正文不必再单独取一次；`x-bt/message` 留着应付长短信被 `subject` 截断的情况。
 
 7. 消息体为 **bMessage** 格式（类 MIME 的分段结构），需自行解析
 
@@ -482,22 +484,29 @@ GET 续传: 0x83 | len | Connection ID                   ← 只带 Connection I
 <?xml version='1.0' encoding='utf-8' standalone='yes'?>
 <MAP-msg-listing version="1.0">
   <msg handle="400000000000839" subject="…" datetime="20261009T104036"
-       sender_addressing="106876251015490" read="no" type="SMS_GSM" />
+       sender_name="" sender_addressing="106876251015490"
+       recipient_addressing="+8613171726112" type="SMS_GSM" size="1"
+       text="yes" reception_status="complete" attachment_size="0"
+       priority="no" read="no" sent="no" protected="no"/>
   …
 </MAP-msg-listing>
 ```
 
-实测 558 条记录，`handle`、`datetime`、`sender_addressing`、`read`、`type` 五个属性解析正常，中文不乱码。
+实测 1024 条记录，`handle`、`subject`、`datetime`、`sender_addressing`、`read`、`type` 均解析正常，中文不乱码。
+
+**`subject` 就是短信正文**：短信文本原样放在这个属性里（实测最长 127 字），发送方在 `sender_addressing`。新短信的正文不必再单独取一次——除非后续发现长短信在这里被截断。
+
+**属性顺序固定**：`handle` → `subject` → `datetime` → `sender_name` → `sender_addressing` → `recipient_name` → `recipient_addressing` → `type` → `size` → `text` → `reception_status` → `attachment_size` → `priority` → `read` → `sent` → `protected`。
+
+> **解析陷阱**：手机生成的 XML **不转义正文里的英文引号**。实测 1024 条里有 1 条的正文带引号，形如 `subject="…有意可回复"Y"办理。…"`，`XMLParser` 在这一处直接中断，只解析出前 558 条、后面 466 条全部丢失。因此列表不能用 XML 解析器读，要按属性名扫描：每个属性的值延伸到**下一个属性名**为止，这样值里的引号不会截断它。
 
 > **分片处理**：服务端按约 64 KB 分片下发，每片以 `0x90` 提示还有后续。客户端收到 `0x90` 后继续发 `0x83` 取下一片，且**不能清空已累积的缓冲**——否则只会拿到最后一片。
 
 ### 7.3 进行中：短信正文
 
-新短信的正文要弹进通知、要落库，所以这一步仍在关键路径上。
+正文在列表的 `subject` 属性里已经拿到了（见 §7.2.3），所以这一步不影响新短信的同步闭环，只关系到一个问题：**长短信会不会在 `subject` 里被截断**。实测 1024 条里最长 127 字、且只有 1 条正好 127 字，看不出硬截断的迹象，但样本里没有超长短信，还不能下定论。
 
-`GET x-bt/message` 取正文时服务端返回 `0xC0`。Connection ID 与 AppParams 的四种组合已逐一试过，不是原因；当前用一份 15 用例的探测程序收敛 handle 在 Name 头里的写法——十六进制串 / 十进制串 / 8 字节大端原始值，UTF-8 与 UTF-16BE 两种编码，带不带结尾 `0x0000`。每个用例单开一条 OBEX 会话，避免会话状态互相污染。
-
-列表已通、正文待定，§5 的架构不受影响。
+为了拿到确定完整的正文，仍在收敛 `GET x-bt/message` 的请求写法。当前服务端返回 `0xC0`；Connection ID 与 AppParams 的四种组合已逐一试过，不是原因。现用一份 15 用例的探测程序收敛 handle 在 Name 头里的写法——十六进制串 / 十进制串 / 8 字节大端原始值，UTF-8 与 UTF-16BE 两种编码，带不带结尾 `0x0000`。每个用例单开一条 OBEX 会话，避免会话状态互相污染。
 
 ### 7.4 待验证：MNS 事件订阅
 
@@ -517,7 +526,7 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 
 - [x] 手机蓝牙配对成功，SDP 记录中出现 MAP / PBAP / HFP 服务
 - [x] OBEX Connect + SETPATH + GET listing 全链路通
-- [x] 列表解析正确，558 条记录，中文不乱码
+- [x] 列表解析正确，1024 条记录，中文不乱码
 - [ ] 正文请求写法确定，`x-bt/message` 能取回短信内容
 - [ ] 定时拉列表 → 比对 handle → 只对新增的取正文，闭环可用
 - [ ] 新短信能弹出 macOS 系统通知

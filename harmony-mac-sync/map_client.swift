@@ -88,25 +88,6 @@ struct MsgInfo {
     }
 }
 
-final class ListingParser: NSObject, XMLParserDelegate {
-    var msgs: [MsgInfo] = []
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?,
-                attributes: [String: String]) {
-        guard elementName == "msg" else { return }
-        var m = MsgInfo()
-        m.handle = attributes["handle"] ?? ""
-        m.subject = attributes["subject"] ?? ""
-        m.datetime = attributes["datetime"] ?? ""
-        m.senderName = attributes["sender_name"] ?? ""
-        m.senderAddress = attributes["sender_addressing"] ?? attributes["sender_address"] ?? ""
-        m.isRead = attributes["read"] ?? ""
-        m.type = attributes["type"] ?? ""
-        msgs.append(m)
-    }
-}
-
 // 服务端分片时可能重复下发整段，取最后一份完整文档
 func normalizeListing(_ raw: String) -> String {
     if let r = raw.range(of: "<?xml", options: .backwards) {
@@ -118,14 +99,62 @@ func normalizeListing(_ raw: String) -> String {
     return raw
 }
 
-func parseListing(_ xml: String) -> [MsgInfo] {
-    let clean = normalizeListing(xml)
-    guard let start = clean.firstIndex(of: "<") else { return [] }
-    let parser = XMLParser(data: Data(String(clean[start...]).utf8))
-    let delegate = ListingParser()
-    parser.delegate = delegate
-    parser.parse()
-    return delegate.msgs
+// 列表里 msg 元素的属性名。手机生成的 XML 存在未转义的引号（短信正文里出现
+// 英文引号时），XMLParser 会在那一处中断、丢掉后面全部记录，因此按属性名自行扫描。
+let LISTING_KEYS = [
+    "handle", "subject", "datetime", "sender_name", "sender_addressing",
+    "recipient_name", "recipient_addressing", "type", "size", "text",
+    "reception_status", "attachment_size", "priority", "read", "sent", "protected",
+]
+
+func tagAttributes(_ tag: Substring) -> [String: String] {
+    var values: [String: String] = [:]
+    for (i, key) in LISTING_KEYS.enumerated() {
+        let head = (i == 0 ? "" : " ") + key + "=\""
+        guard let kr = tag.range(of: head) else { continue }
+        let valueStart = kr.upperBound
+        // 值延伸到下一个属性名，或标签结尾——这样正文里的引号不会把值截断
+        var valueEnd = tag.endIndex
+        for other in LISTING_KEYS where other != key {
+            if let or = tag.range(of: " " + other + "=\"", range: valueStart..<tag.endIndex),
+               or.lowerBound < valueEnd {
+                valueEnd = or.lowerBound
+            }
+        }
+        var value = String(tag[valueStart..<valueEnd])
+        while let last = value.last, last == "\"" || last == " " { value.removeLast() }
+        values[key] = value
+    }
+    return values
+}
+
+func parseListing(_ raw: String) -> [MsgInfo] {
+    let text = normalizeListing(raw)
+    var out: [MsgInfo] = []
+    var cursor = text.startIndex
+
+    while let tagStart = text.range(of: "<msg ", range: cursor..<text.endIndex) {
+        guard let tagEnd = text.range(of: "/>", range: tagStart.upperBound..<text.endIndex) else { break }
+        let values = tagAttributes(text[tagStart.upperBound..<tagEnd.lowerBound])
+
+        var m = MsgInfo()
+        m.handle = values["handle"] ?? ""
+        m.subject = values["subject"] ?? ""
+        m.datetime = values["datetime"] ?? ""
+        m.senderName = values["sender_name"] ?? ""
+        m.senderAddress = values["sender_addressing"] ?? ""
+        m.isRead = values["read"] ?? ""
+        m.type = values["type"] ?? ""
+        if !m.handle.isEmpty { out.append(m) }
+
+        cursor = tagEnd.upperBound
+    }
+    return out
+}
+
+func countTags(_ raw: String) -> Int {
+    let text = normalizeListing(raw)
+    return text.components(separatedBy: "<msg ").count - 1
 }
 
 final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
@@ -359,7 +388,10 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
             listingRaw = String(decoding: acc, as: UTF8.self)
             let xmlCount = listingRaw.components(separatedBy: "<?xml").count - 1
             let endCount = listingRaw.components(separatedBy: "</MAP-msg-listing>").count - 1
+            let tagCount = countTags(listingRaw)
+            let parsedCount = parseListing(listingRaw).count
             emit("  诊断：<?xml 出现 \(xmlCount) 次，</MAP-msg-listing> 出现 \(endCount) 次")
+            emit("  诊断：msg 元素 \(tagCount) 个，解析出 \(parsedCount) 条")
             try? Data(acc).write(to: URL(fileURLWithPath: "/tmp/map_listing_raw.bin"))
             try? Data(normalizeListing(listingRaw).utf8).write(to: URL(fileURLWithPath: "/tmp/map_listing.xml"))
             emit("  原始数据 /tmp/map_listing_raw.bin，规范化后 /tmp/map_listing.xml")
