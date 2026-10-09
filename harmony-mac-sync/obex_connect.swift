@@ -80,7 +80,8 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
     func sendConnect() {
         let (label, uuid) = MAS_UUID_VARIANTS[uuidAttempt]
         var body: [UInt8] = [0x10, 0x00, 0x02, 0x00]
-        body += [HDR_TARGET, 0x00, 0x14] + uuid
+        // Target header 长度 = ID(1) + 长度字段(2) + UUID(16) = 19 = 0x13
+        body += [HDR_TARGET, 0x00, 0x13] + uuid
         let packet = frame(opcode: OBEX_CONNECT, body: body)
 
         emit("[3] OBEX Connect（\(packet.count) 字节，Target UUID \(label)序）")
