@@ -638,6 +638,29 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
 // MARK: - 入口
 
 var args = Array(CommandLine.arguments.dropFirst())
+
+// 本地自检：不连蓝牙，直接拿一份保存下来的列表验解析
+if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
+    let path = args[i + 1]
+    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+        print("读不到 \(path)")
+        exit(1)
+    }
+    let tags = text.components(separatedBy: "<msg ").count - 1
+    let msgs = parseListing(text)
+    print("msg 元素 \(tags) 个，解析出 \(msgs.count) 条")
+    print("正文含引号的条数：\(msgs.filter { $0.subject.contains("\"") }.count)")
+    print("最新 3 条：")
+    for m in msgs.prefix(3) {
+        print("  [\(prettyTime(m.datetime))] \(m.peerNumber) — \(m.subject)")
+    }
+    if let q = msgs.first(where: { $0.subject.contains("\"") }) {
+        print("含引号的样例：")
+        print("  [\(prettyTime(q.datetime))] \(q.peerNumber) — \(q.subject)")
+    }
+    exit(0)
+}
+
 let once = args.contains("--once")
 let reset = args.contains("--reset")
 args.removeAll { $0.hasPrefix("--") }
