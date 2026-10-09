@@ -630,20 +630,31 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         send(frame(opcode: OBEX_SETPATH, body: body), note: "SETPATH \(folder)")
     }
 
-    // 订阅新消息事件。四种写法依次试：ConnID ±、末尾空 EndOfBody ±
+    // 订阅新消息事件。几种写法依次试
     let NOTIF_VARIANTS = [
         "ConnID + 空 EndOfBody",
         "无 ConnID + 空 EndOfBody",
         "ConnID，无 EndOfBody",
         "无 ConnID，无 EndOfBody",
+        "ConnID + Target 头",
+        "ConnID + 空 Body 头",
     ]
 
     func sendNotifRegistration() {
         var body: [UInt8] = []
         body += lenHeader(HDR_TYPE, Array(NOTIF_REG_TYPE.utf8))
         body += lenHeader(HDR_APPPARAMS, [0x0B, 0x01, 0x01])   // NotificationStatus = on
-        if notifVariant < 2 { body += lenHeader(HDR_END_OF_BODY, []) }
-        if notifVariant % 2 == 0 { body = withConnID(body) }
+        switch notifVariant {
+        case 0, 1:
+            body += lenHeader(HDR_END_OF_BODY, [])
+        case 4:
+            body += lenHeader(HDR_TARGET, MAS_UUID)
+        case 5:
+            body += lenHeader(HDR_BODY, [])
+        default:
+            break
+        }
+        if notifVariant != 1 && notifVariant != 3 { body = withConnID(body) }
         send(frame(opcode: OBEX_PUT_FINAL, body: body),
              note: "订阅新消息事件［\(NOTIF_VARIANTS[notifVariant])］")
     }
@@ -718,6 +729,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
         if !isSuccess {
             emit("  ✗ 响应码 0x\(String(format: "%02X", op))（\(bytes.count) 字节）")
+            emit("    \(hex(Array(bytes.prefix(64))))")
 
             // 订阅被拒时换一种写法再试
             if phase == .subscribe && notifSupported == nil && notifVariant + 1 < NOTIF_VARIANTS.count {
