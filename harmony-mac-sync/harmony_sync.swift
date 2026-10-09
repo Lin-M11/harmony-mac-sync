@@ -17,7 +17,7 @@ import SQLite3
 
 let DEVICE_DEFAULT = "E8-1E-92-55-2D-D4"
 let CHANNEL_DEFAULT: UInt8 = 26
-let POLL_INTERVAL: Double = 20.0        // 轮询间隔（秒）
+var pollInterval: Double = 5.0           // 轮询间隔（秒），--interval 可改
 let LISTING_LIMIT: UInt16 = 20          // 每次只取最新的 N 条
 let MAX_CHUNKS = 80
 let STEP_TIMEOUT: Double = 15.0
@@ -319,6 +319,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var pathIndex = 0
     var listingParamsSupported: Bool? = nil   // nil = 还没试出来
     var listingTriedFallback = false
+    var needFullRetry = false
     var newHandles: [Sms] = []
     var newIndex = 0
     var baseline = false
@@ -344,6 +345,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         phase = .connect
         pathIndex = 0
         listingTriedFallback = false
+        needFullRetry = false
 
         if let ch = channel { _ = ch.close() }
         channel = nil
@@ -415,16 +417,17 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         send(frame(opcode: OBEX_SETPATH, body: body), note: "SETPATH \(folder)")
     }
 
-    func sendListing() {
+    func sendListing(forceFull: Bool = false) {
         var body: [UInt8] = []
         body += lenHeader(HDR_TYPE, Array(LISTING_TYPE.utf8))
         body += lenHeader(HDR_NAME, Array("inbox".utf8))
         // MaxListCount：只要最新的 N 条。服务端不认时下面会退回整份列表。
-        if listingParamsSupported != false {
+        let limited = !forceFull && listingParamsSupported != false
+        if limited {
             let ap: [UInt8] = [0x01, 0x02, UInt8(LISTING_LIMIT >> 8), UInt8(LISTING_LIMIT & 0xFF)]
             body += lenHeader(HDR_APPPARAMS, ap)
         }
-        let note = listingParamsSupported == false ? "GET 收件箱列表（整份）" : "GET 收件箱列表（最新 \(LISTING_LIMIT) 条）"
+        let note = limited ? "GET 收件箱列表（最新 \(LISTING_LIMIT) 条）" : "GET 收件箱列表（整份）"
         send(frame(opcode: OBEX_GET_FINAL, body: withConnID(body)), note: note)
     }
 
@@ -570,8 +573,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             for m in msgs { store.remember(m.handle, stamp: m.datetime) }
             store.setState("bootstrap_at", String(Int(Date().timeIntervalSince1970)))
             baseline = false
-            let cutoff = cutoffStamp(days: 120)
-            store.prune(cutoff)
+            store.prune(cutoffStamp(days: 120))
             emit("  ✓ 已建立基线：\(msgs.count) 条记入已见，不通知")
             emit("  已见 handle 共 \(store.count("seen_handle")) 条")
             scheduleNextPoll()
@@ -583,11 +585,24 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             fresh.append(m)
         }
 
+        // 窗口被打满且全是新短信：可能还有更早的新消息落在窗口外，改取整份
+        if !needFullRetry && listingParamsSupported != false
+            && msgs.count >= Int(LISTING_LIMIT) && fresh.count == msgs.count {
+            emit("  窗口已满且 \(fresh.count) 条全新，改取整份列表")
+            needFullRetry = true
+            sendListing(forceFull: true)
+            return
+        }
+        needFullRetry = false
+
         if fresh.isEmpty {
             emit("  无新短信（列表 \(msgs.count) 条）")
             scheduleNextPoll()
             return
         }
+
+        // 按时间正序通知，读起来跟手机上一致
+        fresh.sort { $0.datetime < $1.datetime }
 
         emit("")
         emit("  ★ 新短信 \(fresh.count) 条")
@@ -620,8 +635,8 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
         phase = .listing
-        emit("  下次轮询 \(Int(POLL_INTERVAL)) 秒后")
-        DispatchQueue.main.asyncAfter(deadline: .now() + POLL_INTERVAL) {
+        emit("  下次轮询 \(Int(pollInterval)) 秒后")
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
             guard self.channel != nil else { self.openSession(); return }
             self.phase = .listing
             self.sendListing()
@@ -663,6 +678,11 @@ if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
 
 let once = args.contains("--once")
 let reset = args.contains("--reset")
+if let i = args.firstIndex(of: "--interval"), i + 1 < args.count,
+   let v = Double(args[i + 1]), v >= 1 {
+    pollInterval = v
+    args.removeSubrange(i...(i + 1))
+}
 args.removeAll { $0.hasPrefix("--") }
 
 emit("========================================")
@@ -689,7 +709,7 @@ let bootstrapped = store.state("bootstrap_at") != nil
 emit("设备     : \(device.name ?? "?")")
 emit("通道     : \(channelID)")
 emit("数据库   : \(DB_PATH)")
-emit("轮询间隔 : \(Int(POLL_INTERVAL)) 秒")
+emit("轮询间隔 : \(Int(pollInterval)) 秒")
 emit("模式     : \(once ? "只跑一轮" : "持续轮询")")
 emit("基线     : \(bootstrapped ? "已建立，只处理新短信" : "未建立，本轮只记录不通知")")
 emit("")
