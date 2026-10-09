@@ -43,6 +43,12 @@ let MAS_UUID: [UInt8] = [
     0xB0, 0xDE, 0x08, 0x00, 0x20, 0x0C, 0x9A, 0x66,
 ]
 
+// 阶段二用：随机 UUID，验证服务端是否校验 Target
+let BOGUS_UUID: [UInt8] = [
+    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+    0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00,
+]
+
 func lenHeader(_ id: UInt8, _ value: [UInt8]) -> [UInt8] {
     let total = value.count + 3
     return [id, UInt8((total >> 8) & 0xFF), UInt8(total & 0xFF)] + value
@@ -96,6 +102,11 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var chunks = 0
     var connected = false
     var results: [(String, String)] = []
+    var device: IOBluetoothDevice?
+    var channelID: BluetoothRFCOMMChannelID = 26
+    var phase = 1
+    var awaitingBogus = false
+    var phase2Started = false
 
     func withConnID(_ body: [UInt8]) -> [UInt8] {
         guard let cid = connectionID else { return body }
@@ -133,6 +144,8 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
     func open(device: IOBluetoothDevice, channelID: BluetoothRFCOMMChannelID) {
         emit("[1] 打开 RFCOMM 通道 \(channelID)")
+        self.device = device
+        self.channelID = channelID
         var ch: IOBluetoothRFCOMMChannel? = nil
         let rc = device.openRFCOMMChannelAsync(&ch, withChannelID: channelID, delegate: self)
         emit("    返回码 \(rc)")
@@ -148,19 +161,48 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
         }
         emit("    ✓ 通道已建立")
         emit("")
+
+        let uuid = phase == 2 ? BOGUS_UUID : MAS_UUID
         var body: [UInt8] = [0x10, 0x00, 0x02, 0x00]
-        body += lenHeader(HDR_TARGET, MAS_UUID)
-        emit("[3] OBEX Connect")
+        body += lenHeader(HDR_TARGET, uuid)
+        emit(phase == 2 ? "[P2] OBEX Connect（随机 UUID）" : "[3] OBEX Connect")
         emit("    → \(hex(frame(opcode: OBEX_CONNECT, body: body)))")
+        if phase == 2 { awaitingBogus = true }
         token += 1
         armTimeout()
         write(frame(opcode: OBEX_CONNECT, body: body))
+    }
+
+    func startPhase2() {
+        guard !phase2Started else { return }
+        phase2Started = true
+        emit("")
+        emit("========================================")
+        emit(" 阶段二：Connect 用随机 UUID")
+        emit(" 目的：判断服务端是否校验 Target header")
+        emit("========================================")
+        phase = 2
+        rxBuffer.removeAll()
+        _ = channel?.close()
+        channel = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard let dev = self.device else { self.finish(); return }
+            var ch: IOBluetoothRFCOMMChannel? = nil
+            let rc = dev.openRFCOMMChannelAsync(&ch, withChannelID: self.channelID, delegate: self)
+            emit("    重新打开通道，返回码 \(rc)")
+            self.channel = ch
+        }
     }
 
     func armTimeout() {
         let t = token
         DispatchQueue.main.asyncAfter(deadline: .now() + STEP_TIMEOUT) {
             guard t == self.token else { return }
+            if self.phase == 2 {
+                emit("    ⏱ 无响应")
+                self.finish()
+                return
+            }
             emit("    ⏱ 无响应，进入下一步")
             self.record("超时无响应")
             self.sendNext()
@@ -177,46 +219,45 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
         func conn(_ b: [UInt8]) -> [UInt8] { [HDR_CONNID] + cid + b }
 
-        func setpath(_ folder: String, nullTerm: Bool, conn: Bool, target: Bool,
-                     utf8: Bool = false) -> [UInt8] {
-            var name = utf8 ? Array(folder.utf8) : utf16be(folder)
-            if nullTerm { name += [0x00, 0x00] }
+        func setpath(_ folder: String, conn: Bool, target: Bool) -> [UInt8] {
             var body: [UInt8] = [0x00, 0x00]
-            body += lenHeader(HDR_NAME, name)
+            body += lenHeader(HDR_NAME, utf16be(folder))
             if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
             return frame(opcode: OBEX_SETPATH, body: conn ? withConnID(body) : body)
         }
 
-        func get(_ type: String?, _ name: String?) -> [UInt8] {
+        func get(_ type: String?, _ name: String?, conn: Bool, target: Bool) -> [UInt8] {
             var body: [UInt8] = []
             if let t = type { body += lenHeader(HDR_TYPE, Array(t.utf8)) }
             if let n = name { body += lenHeader(HDR_NAME, Array(n.utf8)) }
-            return frame(opcode: OBEX_GET, body: withConnID(body))
+            if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
+            return frame(opcode: OBEX_GET, body: conn ? withConnID(body) : body)
         }
 
-        func root() -> [UInt8] {
-            frame(opcode: OBEX_SETPATH, body: withConnID([0x01, 0x00]))
+        func root(target: Bool) -> [UInt8] {
+            var body: [UInt8] = [0x01, 0x00]
+            if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
+            return frame(opcode: OBEX_SETPATH, body: withConnID(body))
         }
 
         queue = [
-            // —— SETPATH 矩阵：核心问题 ——
-            Step("SETPATH telecom（UTF-16BE 无 null）", setpath("telecom", nullTerm: false, conn: true, target: false)),
-            Step("SETPATH msg（UTF-16BE 无 null）", setpath("msg", nullTerm: false, conn: true, target: false)),
-            Step("SETPATH inbox（UTF-16BE 无 null）", setpath("inbox", nullTerm: false, conn: true, target: false)),
-            Step("SETPATH 退回根（Flags=0x01 无 Name）", root()),
-            Step("SETPATH telecom（UTF-16BE 带 null 终止）", setpath("telecom", nullTerm: true, conn: true, target: false)),
-            Step("SETPATH telecom（Name 用 UTF-8 裸字节）", setpath("telecom", nullTerm: false, conn: true, target: false, utf8: true)),
-            Step("SETPATH telecom（不带 Connection ID）", setpath("telecom", nullTerm: false, conn: false, target: false)),
-            Step("SETPATH telecom（附 Target header）", setpath("telecom", nullTerm: false, conn: true, target: true)),
-            Step("SETPATH telecom/msg/inbox（整条路径）", setpath("telecom/msg/inbox", nullTerm: false, conn: true, target: false)),
+            // —— GET 矩阵：验证 Target header 是否为关键 ——
+            Step("GET x-bt/MAP-msg-listing + Name=inbox（ConnID + Target）",
+                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true), .resend, 6),
+            Step("GET x-obex/folder-listing（ConnID + Target）",
+                 get("x-obex/folder-listing", nil, conn: true, target: true), .resend, 6),
+            Step("GET x-bt/MAP-msg-listing + Name=inbox（ConnID，无 Target）",
+                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: false), .resend, 6),
 
-            // —— GET 矩阵 ——
-            Step("GET x-obex/folder-listing（无 Name，等待推送）",
-                 get("x-obex/folder-listing", nil), .wait, 0),
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（续传上限 6）",
-                 get("x-bt/MAP-msg-listing", "inbox"), .resend, 6),
-            Step("GET x-bt/MAP-msg-listing（无 Name，续传上限 6）",
-                 get("x-bt/MAP-msg-listing", nil), .resend, 6),
+            // —— SETPATH 链路：全程带 Target ——
+            Step("SETPATH telecom（ConnID + Target）", setpath("telecom", conn: true, target: true)),
+            Step("SETPATH msg（ConnID + Target）", setpath("msg", conn: true, target: true)),
+            Step("SETPATH inbox（ConnID + Target）", setpath("inbox", conn: true, target: true)),
+            Step("GET x-bt/MAP-msg-listing + Name=inbox（进入 inbox 后，ConnID + Target）",
+                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true), .resend, 6),
+
+            Step("SETPATH 退回根（Flags=0x01，ConnID + Target）", root(target: true)),
+            Step("SETPATH telecom/msg/inbox（ConnID + Target）", setpath("telecom/msg/inbox", conn: true, target: true)),
         ]
     }
 
@@ -229,7 +270,7 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
             for (i, r) in results.enumerated() {
                 emit("[\(i + 1)] \(r.1)  ←  \(r.0)")
             }
-            finish()
+            startPhase2()
             return
         }
         let step = queue[idx]
@@ -289,6 +330,18 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
                 connected = true
                 emit("      ↳ Connection ID = \(hex(value))")
             }
+        }
+
+        if awaitingBogus {
+            awaitingBogus = false
+            emit("")
+            if isSuccess {
+                emit("    结论：服务端**接受**随机 UUID —— Connect 阶段不校验 Target")
+            } else {
+                emit("    结论：服务端**拒绝**随机 UUID —— Connect 阶段会校验 Target，MAS 身份可靠")
+            }
+            finish()
+            return
         }
 
         if queue.isEmpty {
