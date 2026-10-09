@@ -26,8 +26,10 @@ func hexShort(_ bytes: [UInt8]) -> String {
 }
 
 // OBEX opcode
+// 高位的 final 位：请求只有一个包时必须置位，否则服务端会认为后续还有数据而回 0x90
 let OBEX_CONNECT: UInt8 = 0x80
 let OBEX_GET: UInt8 = 0x03
+let OBEX_GET_FINAL: UInt8 = 0x83
 let OBEX_SETPATH: UInt8 = 0x85
 
 // OBEX header ID
@@ -80,7 +82,7 @@ struct Step {
     let cont: ContinueMode
     let maxChunks: Int
 
-    init(_ label: String, _ packet: [UInt8], _ cont: ContinueMode = .resend, _ maxChunks: Int = 0) {
+    init(_ label: String, _ packet: [UInt8], _ cont: ContinueMode = .resend, _ maxChunks: Int = 8) {
         self.label = label
         self.packet = packet
         self.cont = cont
@@ -226,12 +228,13 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return frame(opcode: OBEX_SETPATH, body: conn ? withConnID(body) : body)
         }
 
-        func get(_ type: String?, _ name: String?, conn: Bool, target: Bool) -> [UInt8] {
+        func get(_ type: String?, _ name: String?, conn: Bool, target: Bool,
+                 opcode: UInt8 = OBEX_GET_FINAL) -> [UInt8] {
             var body: [UInt8] = []
             if let t = type { body += lenHeader(HDR_TYPE, Array(t.utf8)) }
             if let n = name { body += lenHeader(HDR_NAME, Array(n.utf8)) }
             if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
-            return frame(opcode: OBEX_GET, body: conn ? withConnID(body) : body)
+            return frame(opcode: opcode, body: conn ? withConnID(body) : body)
         }
 
         func root(target: Bool) -> [UInt8] {
@@ -241,23 +244,20 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
         }
 
         queue = [
-            // —— GET 矩阵：验证 Target header 是否为关键 ——
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（ConnID + Target）",
-                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true), .resend, 6),
-            Step("GET x-obex/folder-listing（ConnID + Target）",
-                 get("x-obex/folder-listing", nil, conn: true, target: true), .resend, 6),
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（ConnID，无 Target）",
-                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: false), .resend, 6),
-
-            // —— SETPATH 链路：全程带 Target ——
+            // —— SETPATH 链路：先跑，避免会话被 GET 带偏 ——
             Step("SETPATH telecom（ConnID + Target）", setpath("telecom", conn: true, target: true)),
             Step("SETPATH msg（ConnID + Target）", setpath("msg", conn: true, target: true)),
             Step("SETPATH inbox（ConnID + Target）", setpath("inbox", conn: true, target: true)),
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（进入 inbox 后，ConnID + Target）",
-                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true), .resend, 6),
 
-            Step("SETPATH 退回根（Flags=0x01，ConnID + Target）", root(target: true)),
-            Step("SETPATH telecom/msg/inbox（ConnID + Target）", setpath("telecom/msg/inbox", conn: true, target: true)),
+            // —— GET 矩阵：final 位对照 ——
+            Step("GET x-bt/MAP-msg-listing + Name=inbox（0x83，ConnID + Target）",
+                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true)),
+            Step("GET x-obex/folder-listing（0x83，ConnID + Target）",
+                 get("x-obex/folder-listing", nil, conn: true, target: true)),
+            Step("GET x-bt/MAP-msg-listing + Name=inbox（0x03 非最终位对照）",
+                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true, opcode: OBEX_GET)),
+            Step("GET x-bt/MAP-msg-listing + Name=inbox（0x83，无 ConnID）",
+                 get("x-bt/MAP-msg-listing", "inbox", conn: false, target: true)),
         ]
     }
 
@@ -374,7 +374,7 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
                     emit("      （续传 \(chunks)/\(queue[idx - 1].maxChunks)）")
                     token += 1
                     armTimeout()
-                    write(frame(opcode: OBEX_GET, body: withConnID([])))
+                    write(frame(opcode: OBEX_GET_FINAL, body: withConnID([])))
                     return
                 }
                 emit("      ✗ 达到续传上限 \(queue[idx - 1].maxChunks)，本步结束")
