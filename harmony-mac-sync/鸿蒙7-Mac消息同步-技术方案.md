@@ -193,16 +193,16 @@ Mac 作为蓝牙客户端，直接连接手机暴露的标准蓝牙服务。
 
 **关键流程（新短信到达即同步）**
 
-V1 走定时拉列表这条路径（已实测跑通，见 §7.6）；MNS 事件订阅是 §9.2 的 B1，把延迟压到秒级。
+两条路径同时跑，汇聚到同一个去重入口：**MNS 事件**（手机推，秒级）+ **定时拉列表**（5 秒一轮，兜底）。MNS 详见 §7.4。
 
 角色分工：Mac 是 **MCE**，手机是 **MSE**。MNS 这一侧反过来——**Mac 是 MNS 服务端**，手机在有事时主动连上来。
 
 1. SDP 查询拿到 MSE 的 RFCOMM 通道号
 2. 连 MSE，`SETPATH` 到 `telecom/msg/inbox`
-3. 拉收件箱列表，与已见 handle 比对，只对新增的弹通知并落库
-4. （B1）向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
-5. （B1）Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
-6. （B1）有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`，Mac 收到就立刻走第 3 步
+3. 向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
+4. Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
+5. 有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`
+6. Mac 收到事件 → 立刻拉一次收件箱列表 → 与已见 handle 比对 → 对新增的那条弹通知并落库
 
 | 操作 | OBEX 请求 | 目标路径 / 头 |
 |---|---|---|
@@ -526,15 +526,47 @@ GET 续传: 0x83 | len | Connection ID                   ← 只带 Connection I
 
 为了拿到确定完整的正文，仍在收敛 `GET x-bt/message` 的请求写法。当前服务端返回 `0xC0`；Connection ID 与 AppParams 的四种组合已逐一试过，不是原因。现用一份 15 用例的探测程序收敛 handle 在 Name 头里的写法——十六进制串 / 十进制串 / 8 字节大端原始值，UTF-8 与 UTF-16BE 两种编码，带不带结尾 `0x0000`。每个用例单开一条 OBEX 会话，避免会话状态互相污染。
 
-### 7.4 后续版本 B1：MNS 事件订阅
+### 7.4 B1：MNS 事件订阅（已实现，待实测）
 
-Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新短信时主动连上来推 `x-bt/MAP-Event-Report`。要确认的点：
+方向是反的——**Mac 是 MNS 服务端，手机主动连过来**。所以要做两件事：
 
-1. 手机 SDP 里 MNS 记录用的是 RFCOMM 还是 L2CAP PSM（MAP 1.2 起允许 L2CAP）
-2. 手机是否真的发起这条回连——MNS 是 MSE 主动连 MCE，方向与我们平时的连接相反
-3. `x-bt/MAP-NotificationRegistration` 订阅返回码
+**一、Mac 侧发布 MNS 的 SDP 记录并监听**
 
-这一步不阻塞 V1：定时拉列表那条路径已经能拿到新短信，MNS 只是把延迟从「一个轮询周期」压到秒级。
+```swift
+IOBluetoothSDPServiceRecord.publishedServiceRecord(with: mnsServiceDict(channel: 10))
+IOBluetoothRFCOMMChannel.register(forChannelOpenNotifications: self,
+                                  selector: #selector(incoming(_:channel:)),
+                                  withChannelID: channelID,
+                                  direction: kIOBluetoothUserNotificationChannelDirectionIncoming)
+```
+
+SDP 记录的属性：
+
+| 属性 | 值 |
+|---|---|
+| ServiceClassIDList | `0x1133` |
+| ProtocolDescriptorList | L2CAP(PSM `0x0003`) → RFCOMM(通道号) → OBEX(`0x0008`) |
+| BluetoothProfileDescriptorList | MAP(`0x1134`) v1.2 |
+| ServiceName | `MAP MNS` |
+| SupportedFeatures | `0x00000003`（Notification Registration + Notification） |
+
+通道号传期望值，被占用时系统会另分配，用 `getRFCOMMChannelID` 读回真实值。记录默认是临时的，进程退出即消失。
+
+**二、向 MSE 订阅**
+
+MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B`（NotificationStatus）= `0x01`。这一条的请求写法没有先例可循，实现了四种组合依次回退：Connection ID 有/无 × 末尾空 `EndOfBody` 有/无。
+
+**三、收到事件后立即同步**
+
+手机连上 MNS 通道后推 `PUT`，Type `x-bt/MAP-Event-Report`，AppParams `0x01`（NewMessage）。Mac 应答 `0xA0` 并立刻拉一次收件箱列表，不等下一个轮询周期。
+
+要观察的点：
+
+1. 手机 SDP 里 MNS 记录用的是 RFCOMM 还是 L2CAP PSM（MAP 1.2 起允许 L2CAP），本次按 RFCOMM 发布
+2. 手机是否真的发起这条回连——方向与平时的连接相反
+3. `x-bt/MAP-NotificationRegistration` 订阅返回码，四种写法哪一种被接受
+
+定时轮询继续保留：事件丢失时它是兜底，订阅失败时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
 
 ### 7.5 后续版本 B2：HFP 信令
 
@@ -564,7 +596,7 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 - [x] 新短信弹出 macOS 系统通知，正文取自列表的 `subject`
 - [x] 短信落库，已见 handle 持久化，重启不重复通知
 - [ ] B7：正文请求写法确定，`x-bt/message` 能取回短信内容
-- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级
+- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级（已实现，待实测）
 - [ ] B2：HFP 能拿到来电号码，且不抢占系统音频
 - [ ] B6：手机重启 / 走出蓝牙范围后能自动重连
 
@@ -587,8 +619,9 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 
 | 参数 | 作用 |
 |---|---|
-| 无 | 持续轮询，新短信即通知，默认 5 秒一轮 |
-| `--interval <秒>` | 改轮询间隔 |
+| 无 | 持续轮询 + 订阅手机的新消息事件，新短信即通知 |
+| `--interval <秒>` | 改轮询间隔，默认 5 秒 |
+| `--no-mns` | 只轮询，不订阅事件 |
 | `--once` | 只跑一轮就退出 |
 | `--reset` | 清空本地记录，下次运行重新建立基线 |
 | `--parse <文件>` | 不连蓝牙，直接拿一份保存的列表验解析 |
@@ -632,7 +665,7 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 
 | # | 事项 | 依据 | 前置 |
 |---|---|---|---|
-| B1 | MNS 事件订阅，新短信延迟从轮询周期压到秒级 | §7.4 | 无，纯增量 |
+| B1 | MNS 事件订阅，新短信延迟从轮询周期压到秒级 | §7.4 | 已实现，待实测 |
 | B2 | 来电提醒（HFP 信令，CLIP 取号码） | §5.2.3 | 需验证不抢占系统音频 |
 | B3 | 未接来电记录 | §5.2.2 | 需先做 B4 |
 | B4 | 通讯录同步，号码 → 姓名 | §5.2.2 | 无 |
