@@ -18,6 +18,7 @@ import SQLite3
 let DEVICE_DEFAULT = "E8-1E-92-55-2D-D4"
 let CHANNEL_DEFAULT: UInt8 = 26
 var pollInterval: Double = 5.0           // 轮询间隔（秒），--interval 可改
+var mnsEnabled = true                    // --no-mns 可关掉事件订阅
 let LISTING_LIMIT: UInt16 = 20          // 每次只取最新的 N 条
 let MAX_CHUNKS = 80
 let STEP_TIMEOUT: Double = 15.0
@@ -47,6 +48,7 @@ func hex(_ bytes: [UInt8]) -> String {
 let OBEX_CONNECT: UInt8 = 0x80
 let OBEX_GET_FINAL: UInt8 = 0x83
 let OBEX_SETPATH: UInt8 = 0x85
+let OBEX_PUT_FINAL: UInt8 = 0x82
 
 let HDR_NAME: UInt8 = 0x01
 let HDR_TYPE: UInt8 = 0x42
@@ -63,6 +65,7 @@ let MAS_UUID: [UInt8] = [
 
 let FOLDER_PATH = ["telecom", "msg", "inbox"]
 let LISTING_TYPE = "x-bt/MAP-msg-listing"
+let NOTIF_REG_TYPE = "x-bt/MAP-NotificationRegistration"
 
 func lenHeader(_ id: UInt8, _ value: [UInt8]) -> [UInt8] {
     let total = value.count + 3
@@ -299,6 +302,213 @@ func notify(title: String, body: String) {
     }
 }
 
+// MARK: - OBEX 报文解析
+
+func parseObexHeaders(_ bytes: [UInt8]) -> [(UInt8, [UInt8])] {
+    var out: [(UInt8, [UInt8])] = []
+    var i = 3
+    while i < bytes.count {
+        let id = bytes[i]
+        switch id & 0xC0 {
+        case 0x00:
+            guard i + 1 < bytes.count else { return out }
+            out.append((id, [bytes[i + 1]]))
+            i += 2
+        case 0x40:
+            guard i + 2 < bytes.count else { return out }
+            let len = Int(bytes[i + 1]) << 8 | Int(bytes[i + 2])
+            guard len >= 3, i + len <= bytes.count else { return out }
+            out.append((id, Array(bytes[(i + 3)..<(i + len)])))
+            i += len
+        case 0x80:
+            guard i + 2 < bytes.count else { return out }
+            out.append((id, [bytes[i + 1], bytes[i + 2]]))
+            i += 3
+        default:
+            guard i + 4 < bytes.count else { return out }
+            out.append((id, Array(bytes[(i + 1)...(i + 4)])))
+            i += 5
+        }
+    }
+    return out
+}
+
+// 从 AppParams 里取一个标签的值（格式：标签 1 字节 + 长度 1 字节 + 值）
+func appParam(_ data: [UInt8], tag: UInt8) -> UInt8? {
+    var i = 0
+    while i + 1 < data.count {
+        let t = data[i]
+        let len = Int(data[i + 1])
+        guard i + 2 + len <= data.count else { return nil }
+        if t == tag, len >= 1 { return data[i + 2] }
+        i += 2 + len
+    }
+    return nil
+}
+
+// MARK: - MNS 服务端
+
+let MNS_UUID16: UInt16 = 0x1133
+let MAP_PROFILE_UUID16: UInt16 = 0x1134
+let L2CAP_UUID16: UInt16 = 0x0100
+let RFCOMM_UUID16: UInt16 = 0x0003
+let OBEX_UUID16: UInt16 = 0x0008
+let BROWSE_GROUP_UUID16: UInt16 = 0x1002
+let MNS_RFCOMM_CHANNEL: UInt8 = 10      // 期望值，被占用时系统会另分配
+let EVENT_REPORT_TYPE = "x-bt/MAP-Event-Report"
+
+func sdpUInt16(_ value: UInt16) -> [String: Any] {
+    ["DataElementType": 1, "DataElementValue": Data([UInt8(value >> 8), UInt8(value & 0xFF)])]
+}
+
+func sdpUInt8(_ value: UInt8) -> [String: Any] {
+    ["DataElementType": 1, "DataElementValue": Data([value])]
+}
+
+func mnsServiceDict(channel: UInt8) -> [String: Any] {
+    [
+        "0001 ServiceClassIDList": [IOBluetoothSDPUUID(uuid16: MNS_UUID16)!],
+        "0004 ProtocolDescriptorList": [
+            [IOBluetoothSDPUUID(uuid16: L2CAP_UUID16)!, sdpUInt16(0x0003)],
+            [IOBluetoothSDPUUID(uuid16: RFCOMM_UUID16)!, sdpUInt8(channel)],
+            [IOBluetoothSDPUUID(uuid16: OBEX_UUID16)!],
+        ],
+        "0005 BrowseGroupList": [IOBluetoothSDPUUID(uuid16: BROWSE_GROUP_UUID16)!],
+        "0009 BluetoothProfileDescriptorList": [
+            [IOBluetoothSDPUUID(uuid16: MAP_PROFILE_UUID16)!, sdpUInt16(0x0102)]
+        ],
+        "0100 ServiceName": "MAP MNS",
+        // 低两位：Notification Registration + Notification
+        "0317 SupportedFeatures": ["DataElementType": 1, "DataElementValue": Data([0x00, 0x00, 0x00, 0x03])],
+    ]
+}
+
+// 手机推事件时连上来的那条通道
+final class MnsChannel: NSObject, IOBluetoothRFCOMMChannelDelegate {
+    let channel: IOBluetoothRFCOMMChannel
+    let onEvent: (String) -> Void
+    var rx: [UInt8] = []
+    var connID: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+
+    init(channel: IOBluetoothRFCOMMChannel, onEvent: @escaping (String) -> Void) {
+        self.channel = channel
+        self.onEvent = onEvent
+        super.init()
+    }
+
+    func start() {
+        _ = channel.setDelegate(self)
+        emit("  [MNS] 手机已连上（通道 \(channel.getID())），等事件…")
+    }
+
+    func rfcommChannelData(_ ch: IOBluetoothRFCOMMChannel!, data dataPointer: UnsafeMutableRawPointer!, length dataLength: Int) {
+        rx += Array(UnsafeRawBufferPointer(start: dataPointer, count: dataLength))
+        while rx.count >= 3 {
+            let len = Int(rx[1]) << 8 | Int(rx[2])
+            guard len >= 3 else {
+                emit("  [MNS] 报文长度异常 \(len)，丢弃缓冲")
+                rx.removeAll()
+                return
+            }
+            guard rx.count >= len else { break }
+            let packet = Array(rx[0..<len])
+            rx.removeFirst(len)
+            handle(packet)
+        }
+    }
+
+    func handle(_ packet: [UInt8]) {
+        guard let op = packet.first else { return }
+        let headers = parseObexHeaders(packet)
+        let type = headers.first { $0.0 == HDR_TYPE }.map { String(decoding: $0.1, as: UTF8.self) } ?? ""
+        var body: [UInt8] = []
+        for (id, v) in headers where id == HDR_BODY || id == HDR_END_OF_BODY { body += v }
+
+        switch op & 0x7F {
+        case 0x00:
+            emit("  [MNS] ← CONNECT（\(packet.count) 字节）")
+            respond(0xA0)
+        case 0x02:
+            emit("  [MNS] ← PUT  Type=\(type.isEmpty ? "?" : type)  Body \(body.count) 字节 \(hex(Array(body.prefix(24))))")
+            if type == EVENT_REPORT_TYPE {
+                let newMessage = appParam(body, tag: 0x01)
+                let folder = appParam(body, tag: 0x03)
+                let detail = "NewMessage=\(newMessage.map { String($0) } ?? "?")"
+                    + (folder != nil ? "  Folder=\(folder!)" : "")
+                emit("  [MNS] ★ 事件报告：\(detail)")
+                onEvent(detail)
+            }
+            respond(0xA0)
+        case 0x01:
+            emit("  [MNS] ← DISCONNECT")
+            respond(0xA0)
+            _ = channel.close()
+        default:
+            emit("  [MNS] ← 未知操作 0x\(String(format: "%02X", op))")
+            respond(0xA0)
+        }
+    }
+
+    func respond(_ code: UInt8) {
+        let body: [UInt8] = [HDR_CONNID] + connID
+        var buf = frame(opcode: code, body: body)
+        let rc = channel.writeSync(&buf, length: UInt16(buf.count))
+        if rc != kIOReturnSuccess { emit("  [MNS] ✗ 应答写入返回码 \(rc)") }
+    }
+
+    func rfcommChannelClosed(_ ch: IOBluetoothRFCOMMChannel!) {
+        emit("  [MNS] 手机断开了事件通道")
+    }
+}
+
+final class MnsServer: NSObject {
+    var record: IOBluetoothSDPServiceRecord?
+    var notification: IOBluetoothUserNotification?
+    var channels: [MnsChannel] = []
+    var onEvent: (String) -> Void = { _ in }
+    var channelID: BluetoothRFCOMMChannelID = 0
+
+    func start(onEvent: @escaping (String) -> Void) {
+        self.onEvent = onEvent
+
+        guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with:
+            mnsServiceDict(channel: MNS_RFCOMM_CHANNEL)) else {
+            emit("  [MNS] ✗ SDP 记录发布失败")
+            return
+        }
+        record = rec
+
+        var cid: BluetoothRFCOMMChannelID = 0
+        if rec.getRFCOMMChannelID(&cid) == kIOReturnSuccess {
+            channelID = cid
+            emit("  [MNS] ✓ SDP 记录已发布，RFCOMM 通道 \(cid)")
+        } else {
+            emit("  [MNS] ✓ SDP 记录已发布，未读到通道号")
+        }
+
+        notification = IOBluetoothRFCOMMChannel.register(
+            forChannelOpenNotifications: self,
+            selector: #selector(incoming(_:channel:)),
+            withChannelID: channelID,
+            direction: kIOBluetoothUserNotificationChannelDirectionIncoming)
+
+        if notification != nil {
+            emit("  [MNS] 已监听入站连接，等手机回连")
+        } else {
+            emit("  [MNS] ✗ 入站监听注册失败")
+        }
+    }
+
+    @objc func incoming(_ note: IOBluetoothUserNotification!, channel: IOBluetoothRFCOMMChannel!) {
+        guard let ch = channel else { return }
+        emit("")
+        emit("  [MNS] 有设备连进来了（通道 \(ch.getID())）")
+        let mc = MnsChannel(channel: ch, onEvent: onEvent)
+        channels.append(mc)
+        mc.start()
+    }
+}
+
 // MARK: - 同步主体
 
 final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
@@ -314,16 +524,18 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var acc: [UInt8] = []
     var chunks = 0
 
-    enum Phase { case connect, setpath, listing, idle }
+    enum Phase { case connect, subscribe, setpath, listing, idle }
     var phase: Phase = .connect
     var pathIndex = 0
     var listingParamsSupported: Bool? = nil   // nil = 还没试出来
     var listingTriedFallback = false
     var needFullRetry = false
-    var newHandles: [Sms] = []
-    var newIndex = 0
     var baseline = false
     var pollCount = 0
+    var notifVariant = 0
+    var notifSupported: Bool? = nil           // nil = 还没试出来
+    var awaiting = false
+    var pendingPoll: DispatchWorkItem?
 
     init(store: Store, device: IOBluetoothDevice, channelID: BluetoothRFCOMMChannelID, once: Bool) {
         self.store = store
@@ -390,6 +602,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     func send(_ packet: [UInt8], note: String, resetAcc: Bool = true) {
         emit("→ \(note)（\(packet.count) 字节）")
         if resetAcc { acc = []; chunks = 0 }
+        awaiting = true
         token += 1
         armTimeout()
         write(packet)
@@ -417,6 +630,24 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         send(frame(opcode: OBEX_SETPATH, body: body), note: "SETPATH \(folder)")
     }
 
+    // 订阅新消息事件。四种写法依次试：ConnID ±、末尾空 EndOfBody ±
+    let NOTIF_VARIANTS = [
+        "ConnID + 空 EndOfBody",
+        "无 ConnID + 空 EndOfBody",
+        "ConnID，无 EndOfBody",
+        "无 ConnID，无 EndOfBody",
+    ]
+
+    func sendNotifRegistration() {
+        var body: [UInt8] = []
+        body += lenHeader(HDR_TYPE, Array(NOTIF_REG_TYPE.utf8))
+        body += lenHeader(HDR_APPPARAMS, [0x0B, 0x01, 0x01])   // NotificationStatus = on
+        if notifVariant < 2 { body += lenHeader(HDR_END_OF_BODY, []) }
+        if notifVariant % 2 == 0 { body = withConnID(body) }
+        send(frame(opcode: OBEX_PUT_FINAL, body: body),
+             note: "订阅新消息事件［\(NOTIF_VARIANTS[notifVariant])］")
+    }
+
     func sendListing(forceFull: Bool = false) {
         var body: [UInt8] = []
         body += lenHeader(HDR_TYPE, Array(LISTING_TYPE.utf8))
@@ -436,35 +667,6 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     // MARK: 接收
-
-    func parseHeaders(_ bytes: [UInt8]) -> [(UInt8, [UInt8])] {
-        var out: [(UInt8, [UInt8])] = []
-        var i = 3
-        while i < bytes.count {
-            let id = bytes[i]
-            switch id & 0xC0 {
-            case 0x00:
-                guard i + 1 < bytes.count else { return out }
-                out.append((id, [bytes[i + 1]]))
-                i += 2
-            case 0x40:
-                guard i + 2 < bytes.count else { return out }
-                let len = Int(bytes[i + 1]) << 8 | Int(bytes[i + 2])
-                guard len >= 3, i + len <= bytes.count else { return out }
-                out.append((id, Array(bytes[(i + 3)..<(i + len)])))
-                i += len
-            case 0x80:
-                guard i + 2 < bytes.count else { return out }
-                out.append((id, [bytes[i + 1], bytes[i + 2]]))
-                i += 3
-            default:
-                guard i + 4 < bytes.count else { return out }
-                out.append((id, Array(bytes[(i + 1)...(i + 4)])))
-                i += 5
-            }
-        }
-        return out
-    }
 
     func rfcommChannelData(_ ch: IOBluetoothRFCOMMChannel!, data dataPointer: UnsafeMutableRawPointer!, length dataLength: Int) {
         rxBuffer += Array(UnsafeRawBufferPointer(start: dataPointer, count: dataLength))
@@ -489,7 +691,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
         let isSuccess = (op & 0xF0) == 0xA0
         let isContinue = (op == 0x90)
-        let headers = parseHeaders(bytes)
+        let headers = parseObexHeaders(bytes)
 
         for (id, value) in headers where id == HDR_CONNID {
             if connectionID == nil {
@@ -517,6 +719,22 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         if !isSuccess {
             emit("  ✗ 响应码 0x\(String(format: "%02X", op))（\(bytes.count) 字节）")
 
+            // 订阅被拒时换一种写法再试
+            if phase == .subscribe && notifSupported == nil && notifVariant + 1 < NOTIF_VARIANTS.count {
+                notifVariant += 1
+                emit("  ↻ 换一种写法：\(NOTIF_VARIANTS[notifVariant])")
+                sendNotifRegistration()
+                return
+            }
+            if phase == .subscribe {
+                notifSupported = false
+                emit("  ⚠ 事件订阅未成功，本机继续用定时拉列表")
+                phase = .setpath
+                pathIndex = 0
+                sendSetPath(FOLDER_PATH[pathIndex])
+                return
+            }
+
             // 列表请求带 AppParams 被拒时，退回整份列表
             if phase == .listing && listingParamsSupported != false && !listingTriedFallback {
                 listingParamsSupported = false
@@ -529,10 +747,25 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
 
+        awaiting = false
+
         switch phase {
         case .connect:
             emit("  ✓ 已连接手机")
             if listingParamsSupported == nil { listingParamsSupported = true }
+            if mnsEnabled {
+                phase = .subscribe
+                notifVariant = 0
+                sendNotifRegistration()
+            } else {
+                phase = .setpath
+                pathIndex = 0
+                sendSetPath(FOLDER_PATH[pathIndex])
+            }
+
+        case .subscribe:
+            notifSupported = true
+            emit("  ✓ 事件订阅成功［\(NOTIF_VARIANTS[notifVariant])］")
             phase = .setpath
             pathIndex = 0
             sendSetPath(FOLDER_PATH[pathIndex])
@@ -636,11 +869,29 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         }
         phase = .listing
         emit("  下次轮询 \(Int(pollInterval)) 秒后")
-        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
+        let item = DispatchWorkItem {
             guard self.channel != nil else { self.openSession(); return }
             self.phase = .listing
             self.sendListing()
         }
+        pendingPoll = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval, execute: item)
+    }
+
+    // 手机推来事件时立刻拉一次，不等下一个轮询周期
+    func pollNow(_ reason: String) {
+        guard !once else { return }
+        guard channel != nil else { return }
+        guard !awaiting else {
+            emit("  [MNS] 事件已到，当前请求未完成，等它跑完")
+            return
+        }
+        guard phase == .listing else { return }
+        pendingPoll?.cancel()
+        pendingPoll = nil
+        emit("  [MNS] 事件触发（\(reason)），立即拉一次列表")
+        phase = .listing
+        sendListing()
     }
 
     func finish() {
@@ -678,6 +929,7 @@ if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
 
 let once = args.contains("--once")
 let reset = args.contains("--reset")
+if args.contains("--no-mns") { mnsEnabled = false }
 if let i = args.firstIndex(of: "--interval"), i + 1 < args.count,
    let v = Double(args[i + 1]), v >= 1 {
     pollInterval = v
@@ -711,11 +963,22 @@ emit("通道     : \(channelID)")
 emit("数据库   : \(DB_PATH)")
 emit("轮询间隔 : \(Int(pollInterval)) 秒")
 emit("模式     : \(once ? "只跑一轮" : "持续轮询")")
+emit("事件订阅 : \(mnsEnabled ? "开启（Mac 作 MNS 服务端）" : "关闭")")
 emit("基线     : \(bootstrapped ? "已建立，只处理新短信" : "未建立，本轮只记录不通知")")
 emit("")
 
 let sync = Sync(store: store, device: device, channelID: channelID, once: once)
 sync.baseline = !bootstrapped
+
+if mnsEnabled {
+    emit("启动 MNS 服务端：发布 SDP 记录并监听")
+    let mns = MnsServer()
+    mns.start { detail in
+        sync.pollNow(detail)
+    }
+    emit("")
+}
+
 sync.start()
 
 CFRunLoopRun()

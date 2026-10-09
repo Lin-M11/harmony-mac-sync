@@ -3,8 +3,9 @@
 #
 # 用法一（推荐）：在 Finder 里双击本文件，然后保持窗口开着
 # 用法二：在终端里执行
-#   ./run_sync.command                  持续轮询，默认 5 秒一轮
+#   ./run_sync.command                  持续轮询 + 订阅手机的新消息事件
 #   ./run_sync.command --interval 3     改轮询间隔（秒）
+#   ./run_sync.command --no-mns         只轮询，不订阅事件
 #   ./run_sync.command --once           只跑一轮
 #   ./run_sync.command --reset --once   清空本地记录后重新建立基线
 #
