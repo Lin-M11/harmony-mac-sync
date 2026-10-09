@@ -432,7 +432,7 @@ CREATE TABLE sync_state (
 | `Advanced Audio Source` | A2DP 音频 |
 | `OBEX Object Push` | 文件传输 |
 
-原始输出见 [`sdp_probe_result.txt`](sdp_probe_result.txt)。
+复现方式：`sdp_probe.swift` 列出全部服务记录与各自的 UUID；`phone_cap_probe.swift` 在此基础上把 MAS 记录的每个属性都展开。两者都用 `IOBluetoothSDPServiceRecord.matchesUUID16` 判断服务类型——`ServiceClassIDList`（`0x0001`）外层是数据元素序列（类型 6），UUID 在它的子元素里，靠外层类型判断会全部落空。
 
 **结论：MAP / PBAP / HFP 三类服务均在，方案成立。**
 
@@ -560,27 +560,53 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 
 手机连上 MNS 通道后推 `PUT`，Type `x-bt/MAP-Event-Report`，AppParams `0x01`（NewMessage）。Mac 应答 `0xA0` 并立刻拉一次收件箱列表，不等下一个轮询周期。
 
-**首次实测（2026-10-09 11:39）两处都没过**：
+**实测（2026-10-09 11:39 / 11:49）**
 
 ```
 [MNS] ✗ SDP 记录发布失败
 → 订阅新消息事件［ConnID + 空 EndOfBody］（48 字节）
   ✗ 响应码 0xC0（6 字节）
-… 四种写法全被 0xC0 拒
+    C0 00 06 49 00 03
+→ 订阅新消息事件［无 ConnID + 空 EndOfBody］（48 字节）
+  ✗ 响应码 0xC0（11 字节）
+    C0 00 0B CB 00 00 00 01 49 00 03
 ⚠ 事件订阅未成功，本机继续用定时拉列表
 ```
 
-`publishedServiceRecord(with:)` 返回 nil，记录没建起来；订阅请求六种写法（Connection ID ±、空 `EndOfBody` ±、Target 头、空 `Body` 头）也没被接受。定时轮询不受影响，功能没退化。
+响应体只有一条空的 `EndOfBody`（`49 00 03`），手机没给任何解释；带 Connection ID 的写法会把同一个 ID 回带在响应里。六种写法全部 `0xC0`。
 
-两个问题都在收敛中：SDP 字典写了 9 种写法的一次性探测程序（最简记录 / 协议栈三种数字写法 / `" - "` 分隔键 / `0x` 前缀键 / 无协议栈 / 显式 `SDPDataElement` / `LocalAttributes` / 只走 L2CAP），订阅请求失败时打印响应原始字节。
+**请求本身是合法的**：`x-bt/MAP-NotificationRegistration` 长 33 字节，Type 头 `3 + 33 = 36` 字节，加 AppParams（`4C 00 06 0B 01 01`）与空 `EndOfBody`，整包 48 字节——与日志一致。所以 `0xC0` 更可能来自**手机在注册时先做一次 SDP 查询、找不到 Mac 的 MNS 记录就拒**，而不是请求编码有误。定时轮询不受影响，功能没退化。
 
-要观察的点：
+**两条线索并行收敛**
 
-1. 手机 SDP 里 MNS 记录用的是 RFCOMM 还是 L2CAP PSM（MAP 1.2 起允许 L2CAP），本次按 RFCOMM 发布
-2. 手机是否真的发起这条回连——方向与平时的连接相反
-3. `x-bt/MAP-NotificationRegistration` 订阅返回码，四种写法哪一种被接受
+**（1）SDP 记录发布（当前阻塞项）**
 
-定时轮询继续保留：事件丢失时它是兜底，订阅失败时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
+`publishedServiceRecord(with:)` 返回 nil，记录没建起来。已定位到的规律：字典里含 `0004 ProtocolDescriptorList` 就失败，不含就成功；成功的那两个用例 `getRFCOMMChannelID` 返回 `kIOReturnNotFound`——没有协议栈自然读不到通道号，符合预期。同一进程里连续发布多条记录会互相干扰（守护进程侧的发布是异步的），所以探测改成**每个用例各起一个进程**，并且每个用例先做一次「本地解析」（只把字典交给框架解析成记录对象，不碰守护进程）再做「发布」，把「字典格式不对」和「守护进程不收」两种情况分开定位。
+
+字典格式以官方文档为准：
+
+| 数据元素 | 写法 |
+|---|---|
+| 数字（类型 1、2） | `DataElementValue` 给 `Data`（网络序，长度即元素长度，可省 `DataElementSize`）；或给 `NSNumber` + `DataElementSize` |
+| UUID（类型 3） | `IOBluetoothSDPUUID`；或给 `Data`，类型与长度自动推断 |
+| 字符串（类型 4、8） | `NSString` |
+| 序列（类型 6、7） | `NSArray`，子元素逐个递归解析 |
+| 服务键名 | 十六进制属性 ID 打头，后面可跟空格加说明文字 |
+
+覆盖的写法：仅类 UUID、类 UUID + 服务名、协议栈只给 UUID 不带参数、协议栈只留 L2CAP、协议栈去掉 L2CAP 只留 RFCOMM + OBEX、数字用原始字节、数字用 `NSNumber` + 显式长度、数字放裸 `NSNumber`、L2CAP 换非保留 PSM、完整 MNS 记录、完整记录 + 显式记录句柄，以及 plist 文本往返构建（全程纯 Foundation 类型，排除 Swift 桥接因素）。
+
+**（2）手机是否支持通知注册**
+
+`phone_cap_probe.swift` 用 `matchesUUID16` 判断服务类型（`ServiceClassIDList` 外层是数据元素序列，UUID 在子元素里），确认手机暴露了 MAS——记录名 `SMS/MMS`。探针会展开 MAS 记录的全部属性，读出 `0x0317 SupportedFeatures`，其中「通知注册」位直接决定订阅这条路是否可行。
+
+**要观察的点**
+
+1. 十二种 SDP 字典写法里，哪一种能让 `publishedServiceRecord(with:)` 返回非 nil，并读回真实 RFCOMM 通道号
+2. 手机 MAS 记录里 `0x0317 SupportedFeatures` 的「通知注册」位是否为 1
+3. 手机是否真的发起这条回连——方向与平时的连接相反
+4. 实时性的下限由拉取间隔决定（`--interval`，默认 5 秒）；订阅生效后事件会立刻触发一次拉取，不等下一个周期
+
+定时轮询继续保留：事件丢失时它是兜底，订阅不可用时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
 
 ### 7.5 后续版本 B2：HFP 信令
 
@@ -610,7 +636,7 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 - [x] 新短信弹出 macOS 系统通知，正文取自列表的 `subject`
 - [x] 短信落库，已见 handle 持久化，重启不重复通知
 - [ ] B7：正文请求写法确定，`x-bt/message` 能取回短信内容
-- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级（已实现，待实测）
+- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级（已实现，实测中：SDP 记录发布与手机侧能力两条线索见 §7.4）
 - [ ] B2：HFP 能拿到来电号码，且不抢占系统音频
 - [ ] B6：手机重启 / 走出蓝牙范围后能自动重连
 
@@ -621,13 +647,15 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 | 程序 | 作用 | 状态 |
 |---|---|---|
 | `sdp_probe.swift` | SDP 查询手机蓝牙服务与通道号 | 已跑通 |
+| `phone_cap_probe.swift` | 展开手机 MAS 记录全部属性，读 `SupportedFeatures` | 待跑 |
+| `sdp_publish_probe.swift` | Mac 侧 SDP 记录发布，十二种字典写法各起一个进程 | 待跑 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
 | `harmony_sync.swift` | 增量同步：新短信 → 系统通知 + 落库 | 已跑通 |
 | `obex_bodyprobe.swift` | 正文请求写法收敛 | 待跑 |
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_sync.command`（增量同步）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布探测 + 手机能力探查）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 

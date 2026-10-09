@@ -104,8 +104,9 @@ for (i, item) in services.enumerated() {
     let name = rec.getServiceName() ?? "(无名)"
     var uuids: [String] = []
 
-    if let de = rec.getAttributeDataElement(1), de.getTypeDescriptor() == 3,
-       let arr = de.getArrayValue() as? [Any] {
+    // ServiceClassIDList（0x0001）外层是数据元素序列（类型 6），UUID 在它的子元素里
+    if let de = rec.getAttributeDataElement(BluetoothSDPServiceAttributeID(0x0001)),
+       let arr = de.getArrayValue() {
         for e in arr {
             if let el = e as? IOBluetoothSDPDataElement,
                let u = el.getUUIDValue(), let s = extractUUID(u) {
