@@ -15,6 +15,8 @@
 
 方案是 **Mac 侧蓝牙直连**——用标准蓝牙 MAP / PBAP / HFP 协议直接跟手机通信。手机端零安装、不碰鸿蒙权限。手机已确认暴露这三类服务；MAP 通道已实测打通，可读取短信列表（见 §7.2）。
 
+短信按**增量同步**做：绑定后拉一次列表建立基线，之后只对新增的短信取正文、弹通知、落库，不搬运历史短信。手机侧有新消息时通过 MAP 的 MNS 事件主动通知 Mac，另有定时拉列表兜底（见 §5.2.1）。
+
 App 推送通知的缺口来自硬约束：鸿蒙把「通知监听」划为系统签名级权限、把「短信读取」划为 ACL 受限权限，第三方应用拿不到；官方跨设备通知同步只跑在华为分布式软总线（超级终端）内部，Mac 不在这个生态内。
 
 ---
@@ -27,13 +29,14 @@ App 推送通知的缺口来自硬约束：鸿蒙把「通知监听」划为系�
 
 | 类别 | 具体内容 |
 |---|---|
-| 短信 | 短信 / 彩信的接收提醒，可查看正文与发送方 |
+| 短信 | 新短信到达时同步到 Mac，弹系统通知，可查看正文与发送方 |
 | 通话 | 来电提醒（号码 + 通讯录姓名）、未接来电记录 |
 | 通知 | 手机各 App 的推送通知 |
 
 ### 1.2 非目标（本期不做）
 
 - 在 Mac 上回复短信、拨打电话
+- 拉取手机里的历史短信全量：只同步绑定之后新到达的短信，已有短信仅用于建立基线
 - 微信 / QQ 等 App 内部消息的完整会话同步（受平台限制，见 §3）
 - 手机端安装任何常驻应用
 
@@ -184,23 +187,42 @@ Mac 作为蓝牙客户端，直接连接手机暴露的标准蓝牙服务。
 #### 5.2.1 MAP —— 负责短信 / 彩信
 
 - 角色：Mac 作为 **MCE**（Message Client Equipment），手机是 **MSE**（Message Server Equipment）
-- 服务 UUID：MSE `0x1132`，MNS `0x1133`（MNS 专门用于接收新消息事件）
+- 服务 UUID：MAS `0x1132`（消息存取，在手机上），MNS `0x1133`（消息事件通知，在 Mac 上）
 - 传输：OBEX over RFCOMM
 
-**关键流程（实时收新短信）**
+**关键流程（新短信到达即同步）**
 
-1. 通过 SDP 查询拿到 MSE 和 MNS 的 RFCOMM 通道号
-2. 连接 **MNS** 并保持长连接，等待 OBEX 事件报告
-3. 收到 `NewMessage` 事件后，连 **MSE** 拉取内容：
+角色分工：Mac 是 **MCE**，手机是 **MSE**。MNS 这一侧反过来——**Mac 是 MNS 服务端**，手机在有事时主动连上来。
+
+1. SDP 查询拿到 MSE 的 RFCOMM 通道号
+2. 连 MSE，`SETPATH` 到 `telecom/msg/inbox`
+3. 向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
+4. Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
+5. 有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`
+6. Mac 收到事件 → 拉一次 inbox 列表 → 与已见 handle 比对 → 只对新增的那条取正文
 
 | 操作 | OBEX 请求 | 目标路径 / 头 |
 |---|---|---|
 | 进入收件箱 | `SETPATH` | `telecom/msg/inbox` |
+| 订阅新消息事件 | `PUT` | Type: `x-bt/MAP-NotificationRegistration` |
+| 收事件 | `PUT`（手机发起） | Type: `x-bt/MAP-Event-Report` |
 | 列消息 | `GET` | Type: `x-bt/MAP-msg-listing` |
-| 读正文 | `GET` | Name: `<handle>.bm`，Type: `x-bt/message` |
+| 读正文 | `GET` | Type: `x-bt/message`，Name: `<handle>` |
 | 回上级目录 | `SETPATH` | 空字符串（backup 语义） |
 
-4. 消息体为 **bMessage** 格式（类 MIME 的分段结构），需自行解析
+7. 消息体为 **bMessage** 格式（类 MIME 的分段结构），需自行解析
+
+**两条路径，同一套落库逻辑**
+
+```
+MNS 事件（秒级）  ──┐
+                    ├──→ 比对 handle ──→ 取正文 ──→ 弹通知 ──→ 落库
+定时拉列表（兜底） ──┘
+```
+
+定时那条是为了兜住事件丢失的情况，间隔 30 秒即可。两条路径都走同一个去重入口，重复触发不会重复通知。
+
+**首次绑定**：先拉一次 inbox 列表，把已有 handle 全部记为「已见」但不通知，只建立基线。否则第一次启动会把收件箱里所有短信一次性弹出来。
 
 **标准文件夹路径**：`telecom/msg/inbox`、`sent`、`outbox`、`draft`、`deleted`
 
@@ -260,7 +282,7 @@ Mac → 手机（本期可选实现）：
 | UI | SwiftUI + `MenuBarExtra` | 菜单栏常驻应用，`LSUIElement = true` 隐藏 Dock 图标 |
 | 蓝牙 | **IOBluetooth** 框架 | `IOBluetoothOBEXSession` 提供 OBEX 原语 |
 | 通知 | `UserNotifications` | 走 macOS 通知中心，与系统通知风格一致 |
-| 存储 | SQLite（GRDB） | 存消息与通话记录，支持检索 |
+| 存储 | SQLite（系统 `libsqlite3`） | 存消息与通话记录，支持检索；不引第三方依赖，`import SQLite3` 即可 |
 | 并发 | Swift Concurrency（Actor） | 蓝牙回调在 RunLoop 线程，需桥接到 actor |
 
 **关于 IOBluetooth**：这是 Apple 的公开框架，提供用户态蓝牙访问。关键类：
@@ -280,13 +302,15 @@ BluetoothLink
 ├── DeviceDiscovery        扫描 / 配对 / 记住设备
 ├── SDPResolver            查询 MAP / PBAP / HFP 服务与通道号
 ├── OBEXClient             OBEX 原语封装 + 重连
-├── MapClient              MAP：listing 解析、bMessage 解码、MNS 事件订阅
+├── MapClient              MAP：订阅事件、listing 解析、bMessage 解码
+├── MnsServer              MAP MNS：发布 SDP 记录、监听手机推来的事件
 ├── PbapClient             PBAP：vCard 拉取与解析
 └── HfpClient              HFP：AT 命令通道、CLIP 解析
 
 Core
+├── SyncEngine             比对 handle，决定哪些是新消息
 ├── MessageBus             统一事件流（短信 / 来电 / 通话记录）
-├── Store                  SQLite 持久化，幂等去重（按 handle + 时间戳）
+├── Store                  SQLite 持久化，幂等去重（按 handle）
 └── ContactResolver        号码 → 姓名
 
 UI
@@ -296,15 +320,20 @@ UI
 └── SettingsView           设备绑定、通知规则、开机自启
 ```
 
+**实现顺序**：先跑通「定时拉列表 → 比对 → 取正文 → 通知 → 落库」这条闭环，它只依赖已经验证过的链路，能立刻用起来；再把 `MnsServer` 接上，把新短信的延迟从「最长一个轮询周期」压到秒级。两者共用 `SyncEngine` 的去重入口。
+
 ### 6.3 数据流
 
 ```
 手机事件
-  ├─ MAP MNS 事件 ──→ MapClient 拉取 ──┐
-  ├─ HFP CLIP     ──→ HfpClient 解析 ──┼──→ MessageBus ──┬──→ Store 持久化
-  └─ PBAP 定时同步 ─→ PbapClient      ─┘                │
-                                                        ├──→ UserNotifications 弹通知
-                                                        └──→ UI 实时刷新
+  ├─ MAP MNS 事件 ──┐
+  │                 ├─→ SyncEngine 比对 handle ─→ MapClient 取正文 ─┐
+  ├─ MAP 定时拉列表 ─┘                                              │
+  ├─ HFP CLIP ────────────────────────────────────────────────────┼─→ MessageBus
+  └─ PBAP 定时同步 ───────────────────────────────────────────────┘      │
+                                                                        ├─→ Store 持久化
+                                                                        ├─→ UserNotifications 弹通知
+                                                                        └─→ UI 实时刷新
 ```
 
 ### 6.4 数据模型
@@ -319,7 +348,8 @@ CREATE TABLE message (
   peer_name    TEXT,
   body         TEXT,
   timestamp    INTEGER NOT NULL,
-  is_read      INTEGER DEFAULT 0
+  is_read      INTEGER DEFAULT 0,
+  notified_at  INTEGER                    -- 弹过通知的时间，NULL 表示还没弹
 );
 CREATE UNIQUE INDEX idx_message_handle ON message(handle);
 
@@ -333,9 +363,22 @@ CREATE TABLE call_record (
   duration     INTEGER DEFAULT 0
 );
 CREATE UNIQUE INDEX idx_call_handle ON call_record(handle);
+
+CREATE TABLE sync_state (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
 ```
 
-`handle` 取 MAP 的消息句柄或 PBAP 记录的 UID，配合唯一索引天然实现幂等，避免重复通知。
+`handle` 取 MAP 的消息句柄或 PBAP 记录的 UID，配合唯一索引天然实现幂等，重复触发不会重复通知。
+
+`sync_state` 存同步游标，几个键：
+
+| 键 | 含义 |
+|---|---|
+| `bootstrap_at` | 建立基线的时间，早于它的短信只入库不通知 |
+| `last_poll_at` | 上次轮询时间 |
+| `last_seen_handle` | 上次见到的最大 handle，用于快速判断有没有新消息 |
 
 ### 6.5 工程配置
 
@@ -450,21 +493,36 @@ GET 续传: 0x83 | len | Connection ID                   ← 只带 Connection I
 
 ### 7.3 进行中：短信正文
 
+新短信的正文要弹进通知、要落库，所以这一步仍在关键路径上。
+
 `GET x-bt/message` 取正文时服务端返回 `0xC0`。Connection ID 与 AppParams 的四种组合已逐一试过，不是原因；当前用一份 15 用例的探测程序收敛 handle 在 Name 头里的写法——十六进制串 / 十进制串 / 8 字节大端原始值，UTF-8 与 UTF-16BE 两种编码，带不带结尾 `0x0000`。每个用例单开一条 OBEX 会话，避免会话状态互相污染。
 
 列表已通、正文待定，§5 的架构不受影响。
 
-### 7.4 待验证：HFP 信令
+### 7.4 待验证：MNS 事件订阅
+
+Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新短信时主动连上来推 `x-bt/MAP-Event-Report`。要确认的点：
+
+1. 手机 SDP 里 MNS 记录用的是 RFCOMM 还是 L2CAP PSM（MAP 1.2 起允许 L2CAP）
+2. 手机是否真的发起这条回连——MNS 是 MSE 主动连 MCE，方向与我们平时的连接相反
+3. `x-bt/MAP-NotificationRegistration` 订阅返回码
+
+这一步不阻塞上线：定时拉列表那条路径已经能拿到新短信，MNS 只是把延迟压到秒级。
+
+### 7.5 待验证：HFP 信令
 
 用 `IOBluetoothHandsFreeDevice` 连接手机 AG，打一个电话进来，观察是否能收到 `incomingCallWithNumber` 回调，同时确认**系统音频通道未被抢占**。
 
-### 7.5 验证清单
+### 7.6 验证清单
 
 - [x] 手机蓝牙配对成功，SDP 记录中出现 MAP / PBAP / HFP 服务
 - [x] OBEX Connect + SETPATH + GET listing 全链路通
 - [x] 列表解析正确，558 条记录，中文不乱码
 - [ ] 正文请求写法确定，`x-bt/message` 能取回短信内容
-- [ ] MNS 事件订阅能收到新短信推送
+- [ ] 定时拉列表 → 比对 handle → 只对新增的取正文，闭环可用
+- [ ] 新短信能弹出 macOS 系统通知
+- [ ] 短信落库，重启后不重复通知
+- [ ] MNS 事件订阅能收到手机推来的新消息事件
 - [ ] HFP 能拿到来电号码，且不抢占系统音频
 - [ ] 手机重启 / 走出蓝牙范围后能自动重连
 
