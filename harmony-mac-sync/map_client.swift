@@ -21,7 +21,6 @@ func hex(_ bytes: [UInt8]) -> String {
 
 // OBEX opcode
 let OBEX_CONNECT: UInt8 = 0x80
-let OBEX_DISCONNECT: UInt8 = 0x81
 let OBEX_GET_FINAL: UInt8 = 0x83
 let OBEX_SETPATH: UInt8 = 0x85
 
@@ -34,24 +33,26 @@ let HDR_END_OF_BODY: UInt8 = 0x49
 let HDR_APPPARAMS: UInt8 = 0x4C
 let HDR_CONNID: UInt8 = 0xCB
 
-// MAP Message Access Server 的 OBEX target UUID
 let MAS_UUID: [UInt8] = [
     0xBB, 0x58, 0x2B, 0x40, 0x42, 0x0C, 0x11, 0xDB,
     0xB0, 0xDE, 0x08, 0x00, 0x20, 0x0C, 0x9A, 0x66,
 ]
 
-// 收件箱路径：OBEX 不支持路径分隔符，需逐级下钻
 let FOLDER_PATH = ["telecom", "msg", "inbox"]
-
 let LISTING_TYPE = "x-bt/MAP-msg-listing"
 let MESSAGE_TYPE = "x-bt/message"
 
-// 取前几条短信的正文
 let MAX_BODIES = 3
-
 let MAX_CHUNKS = 600
-// 首次取列表时服务端可能需要较长时间准备，等待放宽
 let STEP_TIMEOUT: Double = 20.0
+
+// 取正文的几种请求形式，依次尝试
+let BODY_VARIANTS = [
+    "ConnID + AppParams",
+    "ConnID，无 AppParams",
+    "无 ConnID，无 AppParams",
+    "无 ConnID + AppParams",
+]
 
 func lenHeader(_ id: UInt8, _ value: [UInt8]) -> [UInt8] {
     let total = value.count + 3
@@ -72,7 +73,6 @@ func frame(opcode: UInt8, body: [UInt8]) -> [UInt8] {
     return [opcode, UInt8((total >> 8) & 0xFF), UInt8(total & 0xFF)] + body
 }
 
-// 从 XML 里取出 msg 节点属性
 struct MsgInfo {
     var handle = ""
     var subject = ""
@@ -100,18 +100,28 @@ final class ListingParser: NSObject, XMLParserDelegate {
         m.subject = attributes["subject"] ?? ""
         m.datetime = attributes["datetime"] ?? ""
         m.senderName = attributes["sender_name"] ?? ""
-        m.senderAddress = attributes["sender_address"] ?? ""
+        m.senderAddress = attributes["sender_addressing"] ?? attributes["sender_address"] ?? ""
         m.isRead = attributes["read"] ?? ""
         m.type = attributes["type"] ?? ""
         msgs.append(m)
     }
 }
 
+// 服务端分片时可能重复下发整段，取最后一份完整文档
+func normalizeListing(_ raw: String) -> String {
+    if let r = raw.range(of: "<?xml", options: .backwards) {
+        return String(raw[r.lowerBound...])
+    }
+    if let r = raw.range(of: "<MAP-msg-listing") {
+        return String(raw[r.lowerBound...])
+    }
+    return raw
+}
+
 func parseListing(_ xml: String) -> [MsgInfo] {
-    // 去掉 XML 声明前的杂散字节
-    guard let start = xml.firstIndex(of: "<") else { return [] }
-    let clean = String(xml[start...])
-    let parser = XMLParser(data: Data(clean.utf8))
+    let clean = normalizeListing(xml)
+    guard let start = clean.firstIndex(of: "<") else { return [] }
+    let parser = XMLParser(data: Data(String(clean[start...]).utf8))
     let delegate = ListingParser()
     parser.delegate = delegate
     parser.parse()
@@ -129,9 +139,11 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var phase: Phase = .connecting
     var pathIndex = 0
     var bodyIndex = 0
+    var bodyVariant = 0
+    var workingBodyVariant: Int?
     var handles: [String] = []
     var acc: [UInt8] = []
-    var listingXML = ""
+    var listingRaw = ""
 
     func withConnID(_ body: [UInt8]) -> [UInt8] {
         guard let cid = connectionID else { return body }
@@ -202,27 +214,39 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
         var body: [UInt8] = []
         body += lenHeader(HDR_TYPE, Array(LISTING_TYPE.utf8))
         body += lenHeader(HDR_NAME, Array("inbox".utf8))
-        // GET 必须携带 Connection ID
         send(frame(opcode: OBEX_GET_FINAL, body: withConnID(body)), note: "GET 短信列表")
     }
 
-    func sendBody(_ handle: String) {
+    func sendBodyVariant(_ handle: String) {
+        let useConn: Bool
+        let useApp: Bool
+        switch bodyVariant {
+        case 0: useConn = true;  useApp = true
+        case 1: useConn = true;  useApp = false
+        case 2: useConn = false; useApp = false
+        default: useConn = false; useApp = true
+        }
+
         var body: [UInt8] = []
         body += lenHeader(HDR_TYPE, Array(MESSAGE_TYPE.utf8))
         body += lenHeader(HDR_NAME, Array(handle.utf8))
-        // AppParams：请求 UTF-8 字符集
-        body += lenHeader(HDR_APPPARAMS, [0x14, 0x01, 0x02])
-        send(frame(opcode: OBEX_GET_FINAL, body: withConnID(body)), note: "GET 正文 \(handle)")
+        if useApp { body += lenHeader(HDR_APPPARAMS, [0x14, 0x01, 0x02]) }
+
+        let packet = frame(opcode: OBEX_GET_FINAL, body: useConn ? withConnID(body) : body)
+        send(packet, note: "GET 正文 \(handle)［\(BODY_VARIANTS[bodyVariant])］")
     }
 
     func sendContinue() {
-        send(frame(opcode: OBEX_GET_FINAL, body: withConnID([])), note: "续传")
+        // 续传不能清空已累积的数据
+        send(frame(opcode: OBEX_GET_FINAL, body: withConnID([])), note: "续传", resetAcc: false)
     }
 
-    func send(_ packet: [UInt8], note: String) {
+    func send(_ packet: [UInt8], note: String, resetAcc: Bool = true) {
         emit("→ \(note)（\(packet.count) 字节）")
-        acc = []
-        chunks = 0
+        if resetAcc {
+            acc = []
+            chunks = 0
+        }
         token += 1
         armTimeout()
         write(packet)
@@ -286,7 +310,7 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
         if isContinue {
             chunks += 1
             if chunks <= MAX_CHUNKS {
-                if chunks % 20 == 0 { emit("  已接收 \(chunks) 片…") }
+                if chunks % 20 == 0 { emit("  已接收 \(chunks) 片，累计 \(acc.count) 字节") }
                 token += 1
                 armTimeout()
                 sendContinue()
@@ -300,6 +324,14 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
         if !isSuccess {
             emit("  ✗ 响应码 0x\(String(format: "%02X", op))（\(bytes.count) 字节）")
             emit("    \(hex(Array(bytes.prefix(64))))")
+
+            // 取正文失败时换一种请求形式再试
+            if phase == .body && workingBodyVariant == nil && bodyVariant + 1 < BODY_VARIANTS.count {
+                bodyVariant += 1
+                emit("  ↻ 换一种形式：\(BODY_VARIANTS[bodyVariant])")
+                sendBodyVariant(handles[bodyIndex])
+                return
+            }
             fail("响应码 0x\(String(format: "%02X", op))")
             return
         }
@@ -323,15 +355,22 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
             }
 
         case .listing:
-            emit("  ✓ 列表接收完成，\(acc.count) 字节（\(chunks + 1) 片）")
-            listingXML = String(decoding: acc, as: UTF8.self)
-            let outPath = "/tmp/map_listing.xml"
-            try? Data(acc).write(to: URL(fileURLWithPath: outPath))
-            emit("  原始 XML 已写入 \(outPath)")
+            emit("  ✓ 列表接收完成，\(acc.count) 字节，续传 \(chunks) 次")
+            listingRaw = String(decoding: acc, as: UTF8.self)
+            let xmlCount = listingRaw.components(separatedBy: "<?xml").count - 1
+            let endCount = listingRaw.components(separatedBy: "</MAP-msg-listing>").count - 1
+            emit("  诊断：<?xml 出现 \(xmlCount) 次，</MAP-msg-listing> 出现 \(endCount) 次")
+            try? Data(acc).write(to: URL(fileURLWithPath: "/tmp/map_listing_raw.bin"))
+            try? Data(normalizeListing(listingRaw).utf8).write(to: URL(fileURLWithPath: "/tmp/map_listing.xml"))
+            emit("  原始数据 /tmp/map_listing_raw.bin，规范化后 /tmp/map_listing.xml")
             reportListing()
             startBodies()
 
         case .body:
+            if workingBodyVariant == nil {
+                workingBodyVariant = bodyVariant
+                emit("  ✓ 正文请求形式确定为：\(BODY_VARIANTS[bodyVariant])")
+            }
             let handle = handles[bodyIndex]
             emit("  ✓ 正文接收完成，\(acc.count) 字节")
             let outPath = "/tmp/map_body_\(handle).txt"
@@ -347,14 +386,17 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     func reportListing() {
-        let msgs = parseListing(listingXML)
+        let msgs = parseListing(listingRaw)
         emit("")
         emit("========================================")
         emit(" 短信列表：共 \(msgs.count) 条")
         emit("========================================")
-        for (i, m) in msgs.enumerated() {
+        for (i, m) in msgs.prefix(20).enumerated() {
             emit("\(i + 1). \(m.brief)")
             emit("     handle=\(m.handle)  已读=\(m.isRead)  类型=\(m.type)")
+        }
+        if msgs.count > 20 {
+            emit("…（其余 \(msgs.count - 20) 条见 /tmp/map_listing.xml）")
         }
         if msgs.isEmpty {
             emit("（收件箱为空）")
@@ -363,7 +405,7 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     func startBodies() {
-        let msgs = parseListing(listingXML)
+        let msgs = parseListing(listingRaw)
         handles = msgs.map { $0.handle }.filter { !$0.isEmpty }
         if handles.isEmpty {
             emit("没有可读取的正文，结束。")
@@ -384,7 +426,8 @@ final class Client: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
         phase = .body
-        sendBody(handles[bodyIndex])
+        bodyVariant = workingBodyVariant ?? 0
+        sendBodyVariant(handles[bodyIndex])
     }
 
     func reportBody(_ data: [UInt8]) {
@@ -433,6 +476,6 @@ emit("")
 let client = Client()
 client.start(device: device, channelID: channelID)
 
-CFRunLoopRunInMode(.defaultMode, 180.0, false)
+CFRunLoopRunInMode(.defaultMode, 240.0, false)
 emit("")
 emit("=== 结束 ===")
