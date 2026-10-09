@@ -8,3 +8,4 @@ MAPClient.app/
 *.cstemp*
 __pycache__/
 *.pyc
+OBEXBodyProbe.app/
