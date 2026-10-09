@@ -560,6 +560,20 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 
 手机连上 MNS 通道后推 `PUT`，Type `x-bt/MAP-Event-Report`，AppParams `0x01`（NewMessage）。Mac 应答 `0xA0` 并立刻拉一次收件箱列表，不等下一个轮询周期。
 
+**首次实测（2026-10-09 11:39）两处都没过**：
+
+```
+[MNS] ✗ SDP 记录发布失败
+→ 订阅新消息事件［ConnID + 空 EndOfBody］（48 字节）
+  ✗ 响应码 0xC0（6 字节）
+… 四种写法全被 0xC0 拒
+⚠ 事件订阅未成功，本机继续用定时拉列表
+```
+
+`publishedServiceRecord(with:)` 返回 nil，记录没建起来；订阅请求六种写法（Connection ID ±、空 `EndOfBody` ±、Target 头、空 `Body` 头）也没被接受。定时轮询不受影响，功能没退化。
+
+两个问题都在收敛中：SDP 字典写了 9 种写法的一次性探测程序（最简记录 / 协议栈三种数字写法 / `" - "` 分隔键 / `0x` 前缀键 / 无协议栈 / 显式 `SDPDataElement` / `LocalAttributes` / 只走 L2CAP），订阅请求失败时打印响应原始字节。
+
 要观察的点：
 
 1. 手机 SDP 里 MNS 记录用的是 RFCOMM 还是 L2CAP PSM（MAP 1.2 起允许 L2CAP），本次按 RFCOMM 发布
