@@ -85,45 +85,22 @@ struct Scenario {
     let build: ([UInt8]) -> [[UInt8]]
 }
 
-// 每个用例独立会话，逐个隔离变量
+// 单会话完整链路：SETPATH 不带 Connection ID，GET 两种形式都试
 let scenarios: [Scenario] = [
-    Scenario(label: "① SETPATH telecom（无 ConnID，无 Target）") { cid in
-        [setpathPacket("telecom", conn: false, target: false, cid: cid)]
-    },
-    Scenario(label: "② SETPATH telecom（ConnID，无 Target）") { cid in
-        [setpathPacket("telecom", conn: true, target: false, cid: cid)]
-    },
-    Scenario(label: "③ SETPATH telecom（ConnID + Target）") { cid in
-        [setpathPacket("telecom", conn: true, target: true, cid: cid)]
-    },
-    Scenario(label: "④ SETPATH telecom（无 ConnID，有 Target）") { cid in
-        [setpathPacket("telecom", conn: false, target: true, cid: cid)]
-    },
-    Scenario(label: "⑤ 下钻 telecom → msg → inbox（无 ConnID 无 Target），再取列表") { cid in
+    Scenario(label: "下钻 telecom → msg → inbox，再取短信列表") { cid in
         [
             setpathPacket("telecom", conn: false, target: false, cid: cid),
             setpathPacket("msg", conn: false, target: false, cid: cid),
             setpathPacket("inbox", conn: false, target: false, cid: cid),
             getPacket("x-bt/MAP-msg-listing", "inbox", conn: false, target: false, cid: cid),
+            getPacket("x-bt/MAP-msg-listing", "inbox", conn: true, target: false, cid: cid),
+            getPacket("x-bt/MAP-msg-listing", nil, conn: true, target: false, cid: cid),
+            getPacket("x-obex/folder-listing", nil, conn: true, target: false, cid: cid),
         ]
-    },
-    Scenario(label: "⑥ 下钻 telecom → msg → inbox（ConnID + Target），再取列表") { cid in
-        [
-            setpathPacket("telecom", conn: true, target: true, cid: cid),
-            setpathPacket("msg", conn: true, target: true, cid: cid),
-            setpathPacket("inbox", conn: true, target: true, cid: cid),
-            getPacket("x-bt/MAP-msg-listing", "inbox", conn: true, target: true, cid: cid),
-        ]
-    },
-    Scenario(label: "⑦ GET 列表，Name 直接给整条路径 telecom/msg/inbox") { cid in
-        [getPacket("x-bt/MAP-msg-listing", "telecom/msg/inbox", conn: false, target: false, cid: cid)]
-    },
-    Scenario(label: "⑧ GET 列表，Name=msg/inbox") { cid in
-        [getPacket("x-bt/MAP-msg-listing", "msg/inbox", conn: false, target: false, cid: cid)]
     },
 ]
 
-let STEP_TIMEOUT: Double = 2.0
+let STEP_TIMEOUT: Double = 6.0
 let PACE_DELAY: Double = 0.15
 let MAX_CHUNKS = 8
 
@@ -343,7 +320,7 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
         if !body.isEmpty {
             let text = String(decoding: body, as: UTF8.self)
-            let shown = text.count > 1200 ? String(text.prefix(1200)) + "\n…（截断）" : text
+            let shown = text.count > 6000 ? String(text.prefix(6000)) + "\n…（截断）" : text
             emit("      Body \(body.count) 字节：")
             emit(shown)
         }
@@ -396,4 +373,4 @@ emit("用例数   : \(scenarios.count)")
 let probe = Probe()
 probe.start(device: device, channelID: channelID)
 
-CFRunLoopRunInMode(.defaultMode, 100.0, false)
+CFRunLoopRunInMode(.defaultMode, 90.0, false)
