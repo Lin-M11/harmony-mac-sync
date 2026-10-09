@@ -1,8 +1,7 @@
 import Foundation
 import IOBluetooth
 
-// MAP 路径探测：在一条 OBEX 会话上依次尝试多种 SETPATH / GET 写法，
-// 打印每一步的原始响应，用来定位服务端接受哪种形式。
+// MAP 路径探测：每个用例独立开一条 OBEX 会话，一次只变一个因素，避免会话状态互相污染。
 // 用法: ./OBEXPathProbe <设备地址> [RFCOMM通道]
 
 let logPath = "/tmp/obex_pathprobe_result.txt"
@@ -25,10 +24,8 @@ func hexShort(_ bytes: [UInt8]) -> String {
     return bytes.count > 48 ? head + " …(共 \(bytes.count))" : head
 }
 
-// OBEX opcode
-// 高位的 final 位：请求只有一个包时必须置位，否则服务端会认为后续还有数据而回 0x90
+// OBEX opcode。高位是 final 位：请求只有一个包时必须置位。
 let OBEX_CONNECT: UInt8 = 0x80
-let OBEX_GET: UInt8 = 0x03
 let OBEX_GET_FINAL: UInt8 = 0x83
 let OBEX_SETPATH: UInt8 = 0x85
 
@@ -43,12 +40,6 @@ let HDR_CONNID: UInt8 = 0xCB
 let MAS_UUID: [UInt8] = [
     0xBB, 0x58, 0x2B, 0x40, 0x42, 0x0C, 0x11, 0xDB,
     0xB0, 0xDE, 0x08, 0x00, 0x20, 0x0C, 0x9A, 0x66,
-]
-
-// 阶段二用：随机 UUID，验证服务端是否校验 Target
-let BOGUS_UUID: [UInt8] = [
-    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-    0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00,
 ]
 
 func lenHeader(_ id: UInt8, _ value: [UInt8]) -> [UInt8] {
@@ -70,50 +61,85 @@ func frame(opcode: UInt8, body: [UInt8]) -> [UInt8] {
     return [opcode, UInt8((total >> 8) & 0xFF), UInt8(total & 0xFF)] + body
 }
 
-// 收到 0x90 之后怎么处理
-enum ContinueMode {
-    case resend   // 再发一个空 GET 续取
-    case wait     // 什么都不发，等服务端自己把 Body 推过来
+// SETPATH 报文：Flags + Constants + Name header（+ 可选 Target）
+func setpathPacket(_ folder: String, conn: Bool, target: Bool, cid: [UInt8]) -> [UInt8] {
+    var body: [UInt8] = [0x00, 0x00]
+    body += lenHeader(HDR_NAME, utf16be(folder))
+    if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
+    if conn { body = [HDR_CONNID] + cid + body }
+    return frame(opcode: OBEX_SETPATH, body: body)
 }
 
-struct Step {
+// GET 报文：Type + Name（+ 可选 Target）
+func getPacket(_ type: String?, _ name: String?, conn: Bool, target: Bool, cid: [UInt8]) -> [UInt8] {
+    var body: [UInt8] = []
+    if let t = type { body += lenHeader(HDR_TYPE, Array(t.utf8)) }
+    if let n = name { body += lenHeader(HDR_NAME, Array(n.utf8)) }
+    if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
+    if conn { body = [HDR_CONNID] + cid + body }
+    return frame(opcode: OBEX_GET_FINAL, body: body)
+}
+
+struct Scenario {
     let label: String
-    let packet: [UInt8]
-    let cont: ContinueMode
-    let maxChunks: Int
-
-    init(_ label: String, _ packet: [UInt8], _ cont: ContinueMode = .resend, _ maxChunks: Int = 8) {
-        self.label = label
-        self.packet = packet
-        self.cont = cont
-        self.maxChunks = maxChunks
-    }
+    let build: ([UInt8]) -> [[UInt8]]
 }
 
-let STEP_TIMEOUT: Double = 2.5
+// 每个用例独立会话，逐个隔离变量
+let scenarios: [Scenario] = [
+    Scenario(label: "① SETPATH telecom（无 ConnID，无 Target）") { cid in
+        [setpathPacket("telecom", conn: false, target: false, cid: cid)]
+    },
+    Scenario(label: "② SETPATH telecom（ConnID，无 Target）") { cid in
+        [setpathPacket("telecom", conn: true, target: false, cid: cid)]
+    },
+    Scenario(label: "③ SETPATH telecom（ConnID + Target）") { cid in
+        [setpathPacket("telecom", conn: true, target: true, cid: cid)]
+    },
+    Scenario(label: "④ SETPATH telecom（无 ConnID，有 Target）") { cid in
+        [setpathPacket("telecom", conn: false, target: true, cid: cid)]
+    },
+    Scenario(label: "⑤ 下钻 telecom → msg → inbox（无 ConnID 无 Target），再取列表") { cid in
+        [
+            setpathPacket("telecom", conn: false, target: false, cid: cid),
+            setpathPacket("msg", conn: false, target: false, cid: cid),
+            setpathPacket("inbox", conn: false, target: false, cid: cid),
+            getPacket("x-bt/MAP-msg-listing", "inbox", conn: false, target: false, cid: cid),
+        ]
+    },
+    Scenario(label: "⑥ 下钻 telecom → msg → inbox（ConnID + Target），再取列表") { cid in
+        [
+            setpathPacket("telecom", conn: true, target: true, cid: cid),
+            setpathPacket("msg", conn: true, target: true, cid: cid),
+            setpathPacket("inbox", conn: true, target: true, cid: cid),
+            getPacket("x-bt/MAP-msg-listing", "inbox", conn: true, target: true, cid: cid),
+        ]
+    },
+    Scenario(label: "⑦ GET 列表，Name 直接给整条路径 telecom/msg/inbox") { cid in
+        [getPacket("x-bt/MAP-msg-listing", "telecom/msg/inbox", conn: false, target: false, cid: cid)]
+    },
+    Scenario(label: "⑧ GET 列表，Name=msg/inbox") { cid in
+        [getPacket("x-bt/MAP-msg-listing", "msg/inbox", conn: false, target: false, cid: cid)]
+    },
+]
+
+let STEP_TIMEOUT: Double = 2.0
 let PACE_DELAY: Double = 0.15
+let MAX_CHUNKS = 8
 
 final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var channel: IOBluetoothRFCOMMChannel?
-    var connectionID: [UInt8]?
-    var queue: [Step] = []
-    var idx = 0
-    var rxBuffer: [UInt8] = []
-    var token = 0
-    var bodyBytes: [UInt8] = []
-    var chunks = 0
-    var connected = false
-    var results: [(String, String)] = []
     var device: IOBluetoothDevice?
     var channelID: BluetoothRFCOMMChannelID = 26
-    var phase = 1
-    var awaitingBogus = false
-    var phase2Started = false
+    var connectionID: [UInt8]?
+    var rxBuffer: [UInt8] = []
+    var token = 0
 
-    func withConnID(_ body: [UInt8]) -> [UInt8] {
-        guard let cid = connectionID else { return body }
-        return [HDR_CONNID] + cid + body
-    }
+    var scenarioIdx = -1
+    var pending: [[UInt8]] = []
+    var reqIdx = 0
+    var chunks = 0
+    var results: [(String, String)] = []
 
     func parseHeaders(_ bytes: [UInt8]) -> [(UInt8, [UInt8])] {
         var out: [(UInt8, [UInt8])] = []
@@ -144,147 +170,93 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
         return out
     }
 
-    func open(device: IOBluetoothDevice, channelID: BluetoothRFCOMMChannelID) {
-        emit("[1] 打开 RFCOMM 通道 \(channelID)")
+    func start(device: IOBluetoothDevice, channelID: BluetoothRFCOMMChannelID) {
         self.device = device
         self.channelID = channelID
-        var ch: IOBluetoothRFCOMMChannel? = nil
-        let rc = device.openRFCOMMChannelAsync(&ch, withChannelID: channelID, delegate: self)
-        emit("    返回码 \(rc)")
-        channel = ch
+        nextScenario()
     }
 
-    func rfcommChannelOpenComplete(_ ch: IOBluetoothRFCOMMChannel!, status: IOReturn) {
-        emit("[2] 通道打开完成，status = \(status)")
-        guard status == kIOReturnSuccess else {
-            emit("    ✗ 通道打开失败")
+    func nextScenario() {
+        scenarioIdx += 1
+        guard scenarioIdx < scenarios.count else {
+            summary()
             finish()
             return
         }
-        emit("    ✓ 通道已建立")
-        emit("")
-
-        let uuid = phase == 2 ? BOGUS_UUID : MAS_UUID
-        var body: [UInt8] = [0x10, 0x00, 0x02, 0x00]
-        body += lenHeader(HDR_TARGET, uuid)
-        emit(phase == 2 ? "[P2] OBEX Connect（随机 UUID）" : "[3] OBEX Connect")
-        emit("    → \(hex(frame(opcode: OBEX_CONNECT, body: body)))")
-        if phase == 2 { awaitingBogus = true }
-        token += 1
-        armTimeout()
-        write(frame(opcode: OBEX_CONNECT, body: body))
-    }
-
-    func startPhase2() {
-        guard !phase2Started else { return }
-        phase2Started = true
         emit("")
         emit("========================================")
-        emit(" 阶段二：Connect 用随机 UUID")
-        emit(" 目的：判断服务端是否校验 Target header")
+        emit("场景 \(scenarioIdx + 1)/\(scenarios.count)：\(scenarios[scenarioIdx].label)")
         emit("========================================")
-        phase = 2
+
+        connectionID = nil
         rxBuffer.removeAll()
-        _ = channel?.close()
+        pending = []
+        reqIdx = 0
+        chunks = 0
+
+        if let ch = channel { _ = ch.close() }
         channel = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             guard let dev = self.device else { self.finish(); return }
             var ch: IOBluetoothRFCOMMChannel? = nil
             let rc = dev.openRFCOMMChannelAsync(&ch, withChannelID: self.channelID, delegate: self)
-            emit("    重新打开通道，返回码 \(rc)")
+            emit("    打开通道，返回码 \(rc)")
             self.channel = ch
         }
+    }
+
+    func rfcommChannelOpenComplete(_ ch: IOBluetoothRFCOMMChannel!, status: IOReturn) {
+        guard status == kIOReturnSuccess else {
+            emit("    ✗ 通道打开失败 status=\(status)")
+            nextScenario()
+            return
+        }
+        emit("    通道已建立")
+        var body: [UInt8] = [0x10, 0x00, 0x02, 0x00]
+        body += lenHeader(HDR_TARGET, MAS_UUID)
+        let pkt = frame(opcode: OBEX_CONNECT, body: body)
+        emit("    → Connect  \(hex(pkt))")
+        token += 1
+        armTimeout()
+        DispatchQueue.main.asyncAfter(deadline: .now() + PACE_DELAY) { self.write(pkt) }
     }
 
     func armTimeout() {
         let t = token
         DispatchQueue.main.asyncAfter(deadline: .now() + STEP_TIMEOUT) {
             guard t == self.token else { return }
-            if self.phase == 2 {
-                emit("    ⏱ 无响应")
-                self.finish()
-                return
+            emit("    ⏱ 无响应")
+            if self.pending.isEmpty {
+                self.nextScenario()
+            } else {
+                self.record("超时无响应")
+                self.advance()
             }
-            emit("    ⏱ 无响应，进入下一步")
-            self.record("超时无响应")
-            self.sendNext()
         }
     }
 
     func record(_ code: String) {
-        let label = idx >= 1 && idx <= queue.count ? queue[idx - 1].label : "(Connect)"
+        let label = "场景\(scenarioIdx + 1) · 第\(reqIdx + 1)步"
         results.append((label, code))
     }
 
-    func buildQueue() {
-        guard let cid = connectionID else { return }
-
-        func conn(_ b: [UInt8]) -> [UInt8] { [HDR_CONNID] + cid + b }
-
-        func setpath(_ folder: String, conn: Bool, target: Bool) -> [UInt8] {
-            var body: [UInt8] = [0x00, 0x00]
-            body += lenHeader(HDR_NAME, utf16be(folder))
-            if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
-            return frame(opcode: OBEX_SETPATH, body: conn ? withConnID(body) : body)
-        }
-
-        func get(_ type: String?, _ name: String?, conn: Bool, target: Bool,
-                 opcode: UInt8 = OBEX_GET_FINAL) -> [UInt8] {
-            var body: [UInt8] = []
-            if let t = type { body += lenHeader(HDR_TYPE, Array(t.utf8)) }
-            if let n = name { body += lenHeader(HDR_NAME, Array(n.utf8)) }
-            if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
-            return frame(opcode: opcode, body: conn ? withConnID(body) : body)
-        }
-
-        func root(target: Bool) -> [UInt8] {
-            var body: [UInt8] = [0x01, 0x00]
-            if target { body += lenHeader(HDR_TARGET, MAS_UUID) }
-            return frame(opcode: OBEX_SETPATH, body: withConnID(body))
-        }
-
-        queue = [
-            // —— SETPATH 链路：先跑，避免会话被 GET 带偏 ——
-            Step("SETPATH telecom（ConnID + Target）", setpath("telecom", conn: true, target: true)),
-            Step("SETPATH msg（ConnID + Target）", setpath("msg", conn: true, target: true)),
-            Step("SETPATH inbox（ConnID + Target）", setpath("inbox", conn: true, target: true)),
-
-            // —— GET 矩阵：final 位对照 ——
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（0x83，ConnID + Target）",
-                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true)),
-            Step("GET x-obex/folder-listing（0x83，ConnID + Target）",
-                 get("x-obex/folder-listing", nil, conn: true, target: true)),
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（0x03 非最终位对照）",
-                 get("x-bt/MAP-msg-listing", "inbox", conn: true, target: true, opcode: OBEX_GET)),
-            Step("GET x-bt/MAP-msg-listing + Name=inbox（0x83，无 ConnID）",
-                 get("x-bt/MAP-msg-listing", "inbox", conn: false, target: true)),
-        ]
-    }
-
-    func sendNext() {
-        guard idx < queue.count else {
-            emit("")
-            emit("========================================")
-            emit(" 结果汇总")
-            emit("========================================")
-            for (i, r) in results.enumerated() {
-                emit("[\(i + 1)] \(r.1)  ←  \(r.0)")
-            }
-            startPhase2()
+    func sendNextReq() {
+        guard reqIdx < pending.count else {
+            nextScenario()
             return
         }
-        let step = queue[idx]
-        idx += 1
-        bodyBytes = []
-        chunks = 0
-        emit("----------------------------------------")
-        emit("[\(idx)/\(queue.count)] \(step.label)")
-        emit("    → \(hex(step.packet))")
+        let pkt = pending[reqIdx]
+        emit("    [\(reqIdx + 1)/\(pending.count)] → \(hex(pkt))")
         token += 1
         armTimeout()
-        DispatchQueue.main.asyncAfter(deadline: .now() + PACE_DELAY) {
-            self.write(step.packet)
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + PACE_DELAY) { self.write(pkt) }
+    }
+
+    func advance() {
+        reqIdx += 1
+        chunks = 0
+        sendNextReq()
     }
 
     func write(_ bytes: [UInt8]) {
@@ -325,88 +297,83 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
         let headers = parseHeaders(bytes)
 
         for (id, value) in headers where id == HDR_CONNID {
-            if !connected {
+            if connectionID == nil {
                 connectionID = value
-                connected = true
                 emit("      ↳ Connection ID = \(hex(value))")
             }
         }
 
-        if awaitingBogus {
-            awaitingBogus = false
-            emit("")
-            if isSuccess {
-                emit("    结论：服务端**接受**随机 UUID —— Connect 阶段不校验 Target")
-            } else {
-                emit("    结论：服务端**拒绝**随机 UUID —— Connect 阶段会校验 Target，MAS 身份可靠")
-            }
-            finish()
-            return
-        }
-
-        if queue.isEmpty {
+        // pending 为空说明这是 Connect 的响应
+        if pending.isEmpty {
             guard isSuccess else {
-                emit("    ✗ Connect 未成功，终止")
-                finish()
+                emit("      ✗ Connect 未成功")
+                nextScenario()
                 return
             }
             emit("      ✓ Connect 成功")
-            emit("")
-            buildQueue()
-            sendNext()
+            pending = scenarios[scenarioIdx].build(connectionID ?? [])
+            reqIdx = 0
+            sendNextReq()
             return
         }
 
+        var body: [UInt8] = []
         for (id, value) in headers where id == HDR_BODY || id == HDR_END_OF_BODY {
-            bodyBytes += value
+            body += value
         }
 
         if isContinue {
             chunks += 1
-            switch queue[idx - 1].cont {
-            case .wait:
-                emit("      （等服务端继续推送…）")
+            if chunks <= MAX_CHUNKS {
+                emit("      （续传 \(chunks)/\(MAX_CHUNKS)）")
                 token += 1
                 armTimeout()
-                return
-            case .resend:
-                if chunks < queue[idx - 1].maxChunks {
-                    emit("      （续传 \(chunks)/\(queue[idx - 1].maxChunks)）")
-                    token += 1
-                    armTimeout()
-                    write(frame(opcode: OBEX_GET_FINAL, body: withConnID([])))
-                    return
-                }
-                emit("      ✗ 达到续传上限 \(queue[idx - 1].maxChunks)，本步结束")
-                record("0x90 ×\(chunks) 后放弃")
-                sendNext()
+                var cont: [UInt8] = []
+                if let cid = connectionID { cont = [HDR_CONNID] + cid }
+                write(frame(opcode: OBEX_GET_FINAL, body: cont))
                 return
             }
+            emit("      ✗ 达到续传上限")
+            record("0x90 ×\(chunks) 后放弃")
+            advance()
+            return
         }
 
         record("0x\(String(format: "%02X", op)) \(tag)")
 
-        if !bodyBytes.isEmpty {
-            let text = String(decoding: bodyBytes, as: UTF8.self)
-            let shown = text.count > 1500 ? String(text.prefix(1500)) + "\n…（截断）" : text
-            emit("      Body \(bodyBytes.count) 字节：")
+        if !body.isEmpty {
+            let text = String(decoding: body, as: UTF8.self)
+            let shown = text.count > 1200 ? String(text.prefix(1200)) + "\n…（截断）" : text
+            emit("      Body \(body.count) 字节：")
             emit(shown)
         }
 
-        sendNext()
+        advance()
+    }
+
+    func summary() {
+        emit("")
+        emit("========================================")
+        emit(" 结果汇总")
+        emit("========================================")
+        for (label, code) in results {
+            emit("\(code)  ←  \(label)")
+        }
     }
 
     func rfcommChannelClosed(_ ch: IOBluetoothRFCOMMChannel!) {
-        emit("[!] 通道已关闭")
+        // 主动切换场景时会关闭通道，这里不额外处理
     }
 
     func finish() {
+        emit("")
+        emit("=== 结束 ===")
         CFRunLoopStop(CFRunLoopGetCurrent())
     }
 }
 
 emit("========================================")
-emit(" MAP 路径探测")
+emit(" MAP 路径探测（每用例独立会话）")
 emit("========================================")
 
 let target = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "E8-1E-92-55-2D-D4"
@@ -423,13 +390,10 @@ guard let device = IOBluetoothDevice(addressString: target) else {
 emit("设备     : \(device.name ?? "?")")
 emit("地址     : \(device.addressString ?? "?")")
 emit("已配对   : \(device.isPaired() ? "是" : "否")")
-emit("已连接   : \(device.isConnected() ? "是" : "否")")
 emit("通道     : \(channelID)")
-emit("")
+emit("用例数   : \(scenarios.count)")
 
 let probe = Probe()
-probe.open(device: device, channelID: channelID)
+probe.start(device: device, channelID: channelID)
 
-CFRunLoopRunInMode(.defaultMode, 75.0, false)
-emit("")
-emit("=== 结束 ===")
+CFRunLoopRunInMode(.defaultMode, 100.0, false)
