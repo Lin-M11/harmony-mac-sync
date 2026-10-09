@@ -2,6 +2,7 @@
 *.bin
 SDPProbe.app/
 OBEXProbe.app/
+OBEXConnect.app/
 *.cstemp*
 __pycache__/
 *.pyc
