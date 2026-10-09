@@ -31,10 +31,9 @@ func shortUUID(_ obj: Any) -> String {
 }
 
 let targets: [(String, String)] = [
-    ("0x1132", "MAP  短信服务 (MSE)"),
-    ("0x1133", "MAP  新消息事件 (MNS)"),
-    ("0x112F", "PBAP 通讯录 (PSE)"),
-    ("0x111F", "HFP  音频网关 (AG)"),
+    ("SMS/MMS", "MAP  短信服务 (MSE)"),
+    ("OBEX Phonebook Access Server", "PBAP 通讯录 (PSE)"),
+    ("Handsfree Gateway", "HFP  音频网关 (AG)"),
 ]
 
 emit("========================================")
@@ -89,9 +88,9 @@ for item in services {
 
     emit("\(name)   [\(uuids.joined(separator: ", "))]   \(chStr)")
 
-    for u in uuids {
-        if targets.contains(where: { $0.0 == u }), rc == kIOReturnSuccess {
-            located[u] = (name, ch)
+    for t in targets where t.0 == name {
+        if rc == kIOReturnSuccess {
+            located[t.0] = (name, ch)
         }
     }
 }
@@ -100,8 +99,8 @@ emit("----------------------------------------")
 emit("目标服务通道")
 emit("----------------------------------------")
 
-for (code, label) in targets {
-    if let hit = located[code] {
+for (key, label) in targets {
+    if let hit = located[key] {
         emit("✓ \(label)")
         emit("      服务名 \(hit.name)   通道 \(hit.channel)")
     } else {
