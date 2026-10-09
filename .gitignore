@@ -4,6 +4,7 @@ SDPProbe.app/
 OBEXProbe.app/
 OBEXConnect.app/
 OBEXPathProbe.app/
+MAPClient.app/
 *.cstemp*
 __pycache__/
 *.pyc
