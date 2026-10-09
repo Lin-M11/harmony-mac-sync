@@ -1,5 +1,7 @@
 .DS_Store
 *.bin
 SDPProbe.app/
+OBEXProbe.app/
+*.cstemp*
 __pycache__/
 *.pyc
