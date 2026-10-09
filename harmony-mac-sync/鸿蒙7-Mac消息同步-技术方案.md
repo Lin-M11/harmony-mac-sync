@@ -537,6 +537,30 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 
 ---
 
+### 7.7 原型清单
+
+| 程序 | 作用 | 状态 |
+|---|---|---|
+| `sdp_probe.swift` | SDP 查询手机蓝牙服务与通道号 | 已跑通 |
+| `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
+| `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
+| `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
+| `harmony_sync.swift` | 增量同步：新短信 → 系统通知 + 落库 | 待跑 |
+| `obex_bodyprobe.swift` | 正文请求写法收敛 | 待跑 |
+
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_sync.command`（增量同步）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+
+`harmony_sync.swift` 支持几个参数：
+
+| 参数 | 作用 |
+|---|---|
+| 无 | 持续轮询，新短信即通知 |
+| `--once` | 只跑一轮就退出 |
+| `--reset` | 清空本地记录，下次运行重新建立基线 |
+| `--parse <文件>` | 不连蓝牙，直接拿一份保存的列表验解析 |
+
+---
+
 ## 8. 风险清单
 
 | # | 风险 | 影响 | 应对 |
