@@ -3,6 +3,7 @@
 SDPProbe.app/
 OBEXProbe.app/
 OBEXConnect.app/
+OBEXPathProbe.app/
 *.cstemp*
 __pycache__/
 *.pyc
