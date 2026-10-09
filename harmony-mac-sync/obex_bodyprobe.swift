@@ -90,6 +90,7 @@ enum NameEnc: String {
     case raw8        = "8 字节大端原始值"
     case utf8Dec     = "UTF-8 十进制字符串"
     case utf16DecNul = "UTF-16BE 十进制字符串 + 0x0000"
+    case utf8Hex0x   = "UTF-8 十六进制字符串带 0x 前缀"
 }
 
 func encodeHandle(_ enc: NameEnc, _ handle: String) -> [UInt8] {
@@ -102,6 +103,7 @@ func encodeHandle(_ enc: NameEnc, _ handle: String) -> [UInt8] {
         return (0..<8).reversed().map { UInt8((value >> (UInt64($0) * 8)) & 0xFF) }
     case .utf8Dec:     return Array(String(value).utf8)
     case .utf16DecNul: return utf16be(String(value)) + [0x00, 0x00]
+    case .utf8Hex0x:   return Array(("0x" + handle).utf8)
     }
 }
 
@@ -141,6 +143,10 @@ let cases: [BodyCase] = [
              useType: true, charset: nil, attachment: 0x00, useConn: true),
     BodyCase(label: "十进制字符串按 UTF-16BE + 0x0000", enc: .utf16DecNul,
              useType: true, charset: 0x01, attachment: 0x00, useConn: true),
+    BodyCase(label: "十六进制串带 0x 前缀按 UTF-8", enc: .utf8Hex0x,
+             useType: true, charset: 0x01, attachment: 0x00, useConn: true),
+    BodyCase(label: "UTF-16BE + 0x0000，Attachment 取 0x01", enc: .utf16HexNul,
+             useType: true, charset: 0x01, attachment: 0x01, useConn: true),
 ]
 
 let STEP_TIMEOUT: Double = 8.0
