@@ -71,8 +71,9 @@ final class Probe: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     func sendConnect() {
-        var body: [UInt8] = [HDR_TARGET, 0x00, 0x14] + MAS_UUID
-        body += [0x10, 0x00, 0x02, 0x00]
+        // OBEX Connect 请求：Version / Flags / MaxPacketLength 必须在 headers 之前
+        var body: [UInt8] = [0x10, 0x00, 0x02, 0x00]
+        body += [HDR_TARGET, 0x00, 0x14] + MAS_UUID
         let packet = frame(opcode: OBEX_CONNECT, body: body)
 
         emit("[3] 发送 OBEX Connect（\(packet.count) 字节）")
