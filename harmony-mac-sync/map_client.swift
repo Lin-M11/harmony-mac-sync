@@ -50,7 +50,8 @@ let MESSAGE_TYPE = "x-bt/message"
 let MAX_BODIES = 3
 
 let MAX_CHUNKS = 600
-let STEP_TIMEOUT: Double = 8.0
+// 首次取列表时服务端可能需要较长时间准备，等待放宽
+let STEP_TIMEOUT: Double = 20.0
 
 func lenHeader(_ id: UInt8, _ value: [UInt8]) -> [UInt8] {
     let total = value.count + 3
