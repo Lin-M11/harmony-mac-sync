@@ -11,7 +11,7 @@
 
 ## 摘要
 
-一句话结论：**短信、通讯录、来电能同步到 Mac；App 推送通知不能。**
+一句话结论：**短信能同步到 Mac —— V1 就做这一件事**；通讯录、来电同样可行，排在后续版本；App 推送通知不能。
 
 方案是 **Mac 侧蓝牙直连**——用标准蓝牙 MAP / PBAP / HFP 协议直接跟手机通信。手机端零安装、不碰鸿蒙权限。手机已确认暴露这三类服务；MAP 通道已实测打通，可读取短信列表（见 §7.2）。
 
@@ -25,18 +25,20 @@ App 推送通知的缺口来自硬约束：鸿蒙把「通知监听」划为系�
 
 ### 1.1 目标
 
-在 Mac 上实时收到手机的三类信息，并以 macOS 原生通知形式提醒：
+**V1 只做短信**：新短信到达手机时同步到 Mac，以 macOS 系统通知提醒，并落库可查。
 
-| 类别 | 具体内容 |
-|---|---|
-| 短信 | 新短信到达时同步到 Mac，弹系统通知，可查看正文与发送方 |
-| 通话 | 来电提醒（号码 + 通讯录姓名）、未接来电记录 |
-| 通知 | 手机各 App 的推送通知 |
+| 类别 | 具体内容 | 版本 |
+|---|---|---|
+| 短信 | 新短信到达时同步到 Mac，弹系统通知，落库可查 | **V1** |
+| 通话 | 来电提醒（号码 + 通讯录姓名）、未接来电记录 | 后续，见 §9.2 |
+| 通讯录 | 号码 → 姓名解析 | 后续，见 §9.2 |
+| App 通知 | 手机各 App 的推送通知 | 不做，见 §3.3 |
 
-### 1.2 非目标（本期不做）
+### 1.2 非目标
 
 - 在 Mac 上回复短信、拨打电话
 - 拉取手机里的历史短信全量：只同步绑定之后新到达的短信，已有短信仅用于建立基线
+- V1 不涉及通话、通讯录、App 通知（见 §9.2）
 - 微信 / QQ 等 App 内部消息的完整会话同步（受平台限制，见 §3）
 - 手机端安装任何常驻应用
 
@@ -46,12 +48,12 @@ App 推送通知的缺口来自硬约束：鸿蒙把「通知监听」划为系�
 
 先给判断，理由见 §3。
 
-| 类别 | 可行性 | 说明 |
-|---|---|---|
-| 短信 | 可行 | 走蓝牙 MAP 协议（Message Access Profile） |
-| 来电 | 可行 | 走蓝牙 HFP 协议（Hands-Free Profile）的 CLIP 来电显示 |
-| 通讯录 | 可行 | 走蓝牙 PBAP 协议，用于把号码解析成姓名 |
-| App 通知 | **不可行** | 无任何可用通道，详见 §3.3 |
+| 类别 | 可行性 | 版本 | 说明 |
+|---|---|---|---|
+| 短信 | 可行，已实测跑通 | **V1** | 走蓝牙 MAP 协议（Message Access Profile） |
+| 通讯录 | 可行 | 后续 B4 | 走蓝牙 PBAP 协议，用于把号码解析成姓名 |
+| 来电 | 可行 | 后续 B2 | 走蓝牙 HFP 协议（Hands-Free Profile）的 CLIP 来电显示 |
+| App 通知 | **不可行** | 不做 | 无任何可用通道，详见 §3.3 |
 
 ---
 
@@ -131,7 +133,7 @@ observer.on('callDetailsChange', (data) => { /* ... */ });
 
 **不推荐。** 按 §3 的分析，这条路最多只能拿到电话状态，短信和通知全部拿不到——投入产出比极低。除非后续拿到企业 ACL 授权，否则不值得启动。
 
-若未来拿到 ACL 权限，可作为增强方案叠加（见 §9.2）。
+若未来拿到 ACL 权限，可作为增强方案叠加（见 §9.3）。
 
 ### 路线 3：Mac 蓝牙直连（推荐）
 
@@ -160,31 +162,30 @@ Mac 作为蓝牙客户端，直接连接手机暴露的标准蓝牙服务。
 │      鸿蒙 7 手机             │                            │           Mac                │
 │                             │                            │                              │
 │  ┌───────────────────────┐  │                            │  ┌────────────────────────┐  │
-│  │ MSE  消息服务 (0x1132)│◄─┼──── MAP: OBEX GET ─────────┼──┤  MAP 客户端            │  │
-│  │ MNS  消息通知 (0x1133)│◄─┼──── MAP: 事件订阅 ─────────┼──┤  (MCE)                 │  │
+│  │ MSE  消息服务 (0x1132)│◄─┼──── MAP: OBEX GET ─────────┼──┤  MAP 客户端  ← V1      │  │
+│  │ MNS  消息通知 (0x1133)│◄─┼──── MAP: 事件订阅 ─────────┼──┤  (MCE)        B1      │  │
 │  ├───────────────────────┤  │                            │  ├────────────────────────┤  │
-│  │ PSE  通讯录服务(0x112F)│◄─┼──── PBAP: OBEX GET ────────┼──┤  PBAP 客户端 (PCE)     │  │
+│  │ PSE  通讯录服务(0x112F)│◄─┼──── PBAP: OBEX GET ────────┼──┤  PBAP 客户端  B4      │  │
 │  ├───────────────────────┤  │                            │  ├────────────────────────┤  │
-│  │ AG   音频网关 (0x111F)│◄─┼──── HFP: AT 命令 / CLIP ───┼──┤  HFP 免提端 (HF)       │  │
+│  │ AG   音频网关 (0x111F)│◄─┼──── HFP: AT 命令 / CLIP ───┼──┤  HFP 免提端   B2      │  │
 │  └───────────────────────┘  │                            │  └────────────────────────┘  │
 └─────────────────────────────┘                            │              │               │
                                                            │              ▼               │
                                                            │   ┌──────────────────────┐   │
-                                                           │   │ 统一消息总线 (Actor) │   │
+                                                           │   │  增量比对 + 去重      │   │
                                                            │   └──────────────────────┘   │
                                                            │        │          │          │
                                                            │        ▼          ▼          │
-                                                           │   本地数据库   通知中心       │
-                                                           │   (SQLite)   (UserNotif.)    │
-                                                           │        │                     │
-                                                           │        ▼                     │
-                                                           │   菜单栏 UI (MenuBarExtra)   │
+                                                           │   本地数据库   系统通知       │
+                                                           │   (SQLite)                 │
                                                            └──────────────────────────────┘
 ```
 
-### 5.2 三条蓝牙通道的分工
+标注 V1 的是本期范围，B1 / B2 / B4 见 §9.2。
 
-#### 5.2.1 MAP —— 负责短信 / 彩信
+### 5.2 蓝牙通道的分工（V1 只用 MAP）
+
+#### 5.2.1 MAP —— 负责短信 / 彩信（V1）
 
 - 角色：Mac 作为 **MCE**（Message Client Equipment），手机是 **MSE**（Message Server Equipment）
 - 服务 UUID：MAS `0x1132`（消息存取，在手机上），MNS `0x1133`（消息事件通知，在 Mac 上）
@@ -192,14 +193,16 @@ Mac 作为蓝牙客户端，直接连接手机暴露的标准蓝牙服务。
 
 **关键流程（新短信到达即同步）**
 
+V1 走定时拉列表这条路径（已实测跑通，见 §7.6）；MNS 事件订阅是 §9.2 的 B1，把延迟压到秒级。
+
 角色分工：Mac 是 **MCE**，手机是 **MSE**。MNS 这一侧反过来——**Mac 是 MNS 服务端**，手机在有事时主动连上来。
 
 1. SDP 查询拿到 MSE 的 RFCOMM 通道号
 2. 连 MSE，`SETPATH` 到 `telecom/msg/inbox`
-3. 向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
-4. Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
-5. 有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`
-6. Mac 收到事件 → 拉一次收件箱列表 → 与已见 handle 比对 → 对新增的那条弹通知并落库
+3. 拉收件箱列表，与已见 handle 比对，只对新增的弹通知并落库
+4. （B1）向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
+5. （B1）Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
+6. （B1）有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`，Mac 收到就立刻走第 3 步
 
 | 操作 | OBEX 请求 | 目标路径 / 头 |
 |---|---|---|
@@ -228,7 +231,7 @@ MNS 事件（秒级）  ──┐
 
 **标准文件夹路径**：`telecom/msg/inbox`、`sent`、`outbox`、`draft`、`deleted`
 
-#### 5.2.2 PBAP —— 负责通讯录与通话记录
+#### 5.2.2 PBAP —— 负责通讯录与通话记录（后续版本 B3 / B4）
 
 - 角色：Mac 作为 **PCE**（Phonebook Client Equipment），手机是 **PSE**
 - 服务 UUID：PSE `0x112F`
@@ -244,7 +247,7 @@ MNS 事件（秒级）  ──┐
 
 支持 `Filter` 头做字段裁剪（只取 `FN` / `TEL`），能显著降低传输量。**通讯录的作用是把来电号码解析成姓名。**
 
-#### 5.2.3 HFP —— 负责来电提醒
+#### 5.2.3 HFP —— 负责来电提醒（后续版本 B2）
 
 - 角色：Mac 作为 **HF**（免提端），手机是 **AG**（音频网关）
 - 服务 UUID：HF `0x111E`，AG `0x111F`
@@ -281,10 +284,10 @@ Mac → 手机（本期可选实现）：
 | 层 | 选型 | 说明 |
 |---|---|---|
 | 语言 | Swift 5.9+ | 需要直接调 Objective-C 的 IOBluetooth |
-| UI | SwiftUI + `MenuBarExtra` | 菜单栏常驻应用，`LSUIElement = true` 隐藏 Dock 图标 |
+| UI | 命令行窗口（V1） | 日志即界面；菜单栏形态是 B5 |
 | 蓝牙 | **IOBluetooth** 框架 | `IOBluetoothOBEXSession` 提供 OBEX 原语 |
-| 通知 | `UserNotifications` | 走 macOS 通知中心，与系统通知风格一致 |
-| 存储 | SQLite（系统 `libsqlite3`） | 存消息与通话记录，支持检索；不引第三方依赖，`import SQLite3` 即可 |
+| 通知 | `osascript`（V1）→ `UserNotifications` | V1 用系统脚本弹通知，绕开签名要求；B5 打包成应用后换 `UserNotifications`，通知显示为应用自己的名字 |
+| 存储 | SQLite（系统 `libsqlite3`） | 存短信，支持检索；不引第三方依赖，`import SQLite3` 即可 |
 | 并发 | Swift Concurrency（Actor） | 蓝牙回调在 RunLoop 线程，需桥接到 actor |
 
 **关于 IOBluetooth**：这是 Apple 的公开框架，提供用户态蓝牙访问。关键类：
@@ -292,51 +295,64 @@ Mac → 手机（本期可选实现）：
 - `IOBluetoothDeviceInquiry` —— 设备发现
 - `IOBluetoothDevice` —— 设备对象，`pair()` / `isPaired()`
 - `IOBluetoothSDPServiceRecord` —— SDP 查询，拿 RFCOMM 通道号
-- `IOBluetoothOBEXSession` —— OBEX 会话，提供 `sendConnectCommand` / `sendGetCommand` / `sendSetPathCommand` / `sendPutCommand`
-- `IOBluetoothHandsFreeDevice` —— HFP 免提端封装，带 `handsFreeDevice:incomingCallWithNumber:` 等 delegate 回调
+- `IOBluetoothRFCOMMChannel` —— RFCOMM 通道，`writeSync` / `rfcommChannelData` 收发字节流
+- `IOBluetoothHandsFreeDevice` —— HFP 免提端封装，带 `handsFreeDevice:incomingCallWithNumber:` 等 delegate 回调（B2 用）
 
-**注意**：`IOBluetoothOBEXSession` 只给 OBEX 原语，**MAP / PBAP 的报文构造与解析需要自己写**（这部分是主要工作量）。同时它基于 RunLoop，与 Swift Concurrency 混用时要包一层适配。
+**注意**：`IOBluetoothOBEXSession` 是 Apple 提供的 OBEX 封装，但它对 MAP 的自定义 Header 支持有限。实测走的是**直接在 RFCOMM 字节流上收发 OBEX 报文**（`IOBluetoothRFCOMMChannel`），好处是能逐字节对照，报文规则见 §7.2.1。这部分是本项目的主要工作量。
 
 ### 6.2 模块划分
 
 ```
 BluetoothLink
 ├── DeviceDiscovery        扫描 / 配对 / 记住设备
-├── SDPResolver            查询 MAP / PBAP / HFP 服务与通道号
+├── SDPResolver            查询 MAP 服务与通道号
 ├── OBEXClient             OBEX 原语封装 + 重连
-├── MapClient              MAP：订阅事件、listing 解析、bMessage 解码
-├── MnsServer              MAP MNS：发布 SDP 记录、监听手机推来的事件
-├── PbapClient             PBAP：vCard 拉取与解析
-└── HfpClient              HFP：AT 命令通道、CLIP 解析
+└── MapClient              MAP：listing 解析、增量比对
 
 Core
 ├── SyncEngine             比对 handle，决定哪些是新消息
-├── MessageBus             统一事件流（短信 / 来电 / 通话记录）
 ├── Store                  SQLite 持久化，幂等去重（按 handle）
-└── ContactResolver        号码 → 姓名
+└── Notifier               弹 macOS 系统通知
 
 UI
-├── MenuBarExtra           状态图标 + 快捷面板
-├── MessageListView        短信列表与详情
-├── CallHistoryView        通话记录
-└── SettingsView           设备绑定、通知规则、开机自启
+└── 命令行窗口（V1）        日志即界面
 ```
 
-**实现顺序**：先跑通「定时拉列表 → 比对 → 取正文 → 通知 → 落库」这条闭环，它只依赖已经验证过的链路，能立刻用起来；再把 `MnsServer` 接上，把新短信的延迟从「最长一个轮询周期」压到秒级。两者共用 `SyncEngine` 的去重入口。
+后续版本再加（见 §9.2）：
+
+```
+BluetoothLink
+├── MnsServer              MAP MNS：发布 SDP 记录、监听手机推来的事件      B1
+├── PbapClient             PBAP：vCard 拉取与解析                        B4
+└── HfpClient              HFP：AT 命令通道、CLIP 解析                   B2
+
+Core
+├── ContactResolver        号码 → 姓名                                  B4
+└── MessageBus             统一事件流（短信 / 来电 / 通话记录）             B2
+
+UI
+├── MenuBarExtra           状态图标 + 快捷面板                            B5
+├── MessageListView        短信列表与详情                                 B8
+├── CallHistoryView        通话记录                                      B3
+└── SettingsView           设备绑定、通知规则、开机自启                      B6
+```
+
+**V1 的实现顺序**：定时拉列表 → 比对 handle → 弹通知 → 落库。只依赖已验证过的链路，交付即能用。
 
 ### 6.3 数据流
 
+V1：
+
 ```
-手机事件
-  ├─ MAP MNS 事件 ──┐
-  │                 ├─→ SyncEngine 比对 handle ─→ MapClient 取正文 ─┐
-  ├─ MAP 定时拉列表 ─┘                                              │
-  ├─ HFP CLIP ────────────────────────────────────────────────────┼─→ MessageBus
-  └─ PBAP 定时同步 ───────────────────────────────────────────────┘      │
-                                                                        ├─→ Store 持久化
-                                                                        ├─→ UserNotifications 弹通知
-                                                                        └─→ UI 实时刷新
+手机收件箱
+    │
+    └─ 定时拉列表 ──→ SyncEngine 比对 handle ──→ 新短信
+                                                    ├─→ Store 落库
+                                                    ├─→ Notifier 弹系统通知
+                                                    └─→ 日志输出
 ```
+
+后续版本在这条链上挂新的入口，去重入口不变（见 §9.2）：MNS 事件（B1）、HFP 来电（B2）、PBAP 通讯录（B4）。
 
 ### 6.4 数据模型
 
@@ -355,7 +371,7 @@ CREATE TABLE message (
 );
 CREATE UNIQUE INDEX idx_message_handle ON message(handle);
 
-CREATE TABLE call_record (
+CREATE TABLE call_record (                -- 后续版本 B3
   id           INTEGER PRIMARY KEY,
   handle       TEXT    NOT NULL,
   peer_number  TEXT,
@@ -504,13 +520,13 @@ GET 续传: 0x83 | len | Connection ID                   ← 只带 Connection I
 
 **只取最新若干条**：列表请求带 AppParams `0x01`（MaxListCount，2 字节大端）即可只拿最新的 N 条，实测这台手机直接接受（`4C 00 07 01 02 00 14` 表示只取 20 条）。轮询因此从 450 KB 降到几 KB，是这条路径能高频跑的前提。
 
-### 7.3 进行中：短信正文
+### 7.3 后续版本 B7：短信正文
 
 正文在列表的 `subject` 属性里已经拿到了（见 §7.2.3），所以这一步不影响新短信的同步闭环，只关系到一个问题：**长短信会不会在 `subject` 里被截断**。实测 1024 条里最长 127 字、且只有 1 条正好 127 字，看不出硬截断的迹象，但样本里没有超长短信，还不能下定论。
 
 为了拿到确定完整的正文，仍在收敛 `GET x-bt/message` 的请求写法。当前服务端返回 `0xC0`；Connection ID 与 AppParams 的四种组合已逐一试过，不是原因。现用一份 15 用例的探测程序收敛 handle 在 Name 头里的写法——十六进制串 / 十进制串 / 8 字节大端原始值，UTF-8 与 UTF-16BE 两种编码，带不带结尾 `0x0000`。每个用例单开一条 OBEX 会话，避免会话状态互相污染。
 
-### 7.4 待验证：MNS 事件订阅
+### 7.4 后续版本 B1：MNS 事件订阅
 
 Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新短信时主动连上来推 `x-bt/MAP-Event-Report`。要确认的点：
 
@@ -518,9 +534,9 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 2. 手机是否真的发起这条回连——MNS 是 MSE 主动连 MCE，方向与我们平时的连接相反
 3. `x-bt/MAP-NotificationRegistration` 订阅返回码
 
-这一步不阻塞上线：定时拉列表那条路径已经能拿到新短信，MNS 只是把延迟压到秒级。
+这一步不阻塞 V1：定时拉列表那条路径已经能拿到新短信，MNS 只是把延迟从「一个轮询周期」压到秒级。
 
-### 7.5 待验证：HFP 信令
+### 7.5 后续版本 B2：HFP 信令
 
 用 `IOBluetoothHandsFreeDevice` 连接手机 AG，打一个电话进来，观察是否能收到 `incomingCallWithNumber` 回调，同时确认**系统音频通道未被抢占**。
 
@@ -547,10 +563,10 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 - [x] 定时拉列表 → 比对 handle → 只对新增的弹通知并落库，闭环可用
 - [x] 新短信弹出 macOS 系统通知，正文取自列表的 `subject`
 - [x] 短信落库，已见 handle 持久化，重启不重复通知
-- [ ] 正文请求写法确定，`x-bt/message` 能取回短信内容
-- [ ] MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级
-- [ ] HFP 能拿到来电号码，且不抢占系统音频
-- [ ] 手机重启 / 走出蓝牙范围后能自动重连
+- [ ] B7：正文请求写法确定，`x-bt/message` 能取回短信内容
+- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级
+- [ ] B2：HFP 能拿到来电号码，且不抢占系统音频
+- [ ] B6：手机重启 / 走出蓝牙范围后能自动重连
 
 ---
 
@@ -591,35 +607,47 @@ Mac 发布 UUID `0x1133` 的 SDP 记录并监听，看手机是否会在有新�
 
 | # | 风险 | 影响 | 应对 |
 |---|---|---|---|
-| R1 | 华为手机不对外暴露 MAP / PBAP 服务 | **致命，方案不成立** | §7.1 先验证；若不暴露则只能转 §9.2 |
+| R1 | 华为手机不对外暴露 MAP 服务 | ~~致命~~ 已解除 | §7.1 实测确认 MAP / PBAP / HFP 服务均在 |
 | R2 | 系统升级后收紧蓝牙服务 | 高 | 协议是蓝牙 SIG 标准，通常稳定；做好版本监控 |
-| R3 | OBEX 报文手写工作量大、易出错 | 中 | 先用 Python 原型跑通，再移植 Swift |
-| R4 | HFP 与 macOS 系统音频抢占 | 中 | 只走信令通道，不建立 SCO 音频链路 |
-| R5 | 消息量大时 PBAP 全量同步慢 | 中 | 用 `Filter` 裁剪字段，改增量同步 |
-| R6 | 手机锁屏后服务挂起 | 中 | 已配对设备的 MAP 服务通常常驻；实测确认 |
-| R7 | 无 App 通知能力 | 高（体验缺失） | 明确产品定位为「短信 + 通话」；见 §9 |
-| R8 | macOS 蓝牙权限与沙盒限制 | 中 | 非沙盒分发，或配好 bluetooth entitlement |
+| R3 | OBEX 报文手写工作量大、易出错 | ~~中~~ 已解除 | Swift 原型已跑通，报文规则固化在 §7.2.1 |
+| R4 | 手机锁屏后 MAP 服务挂起 | 中 | 实测持续 4 分钟会话未断；长跑观察 |
+| R5 | 轮询耗电与流量 | 中 | 每轮只取最新 20 条，请求 46 字节；后续用 MNS 取代高频轮询（B1） |
+| R6 | macOS 蓝牙权限归因到启动进程 | 中 | 权限记在启动进程上，用 `.command` 双击启动即正常授权 |
+| R7 | 无 App 通知能力 | 高（体验缺失） | V1 定位为短信同步；见 §9.2 |
+| R8 | 通话 / 通讯录依赖 HFP、PBAP | 中 | 排在后续版本（B2 / B4），各自独立验证 |
 
 ---
 
-## 9. 备选与增强方案
+## 9. 版本范围
 
-### 9.1 本期范围
+### 9.1 V1：只做短信
 
-只做**短信 + 来电 + 通话记录**。App 通知明确不承诺。
+**新短信到达时同步到 Mac，弹系统通知，落库可查。** 就这一件事。
 
-### 9.2 增强：如果拿到企业 ACL 权限
+不碰通话、不碰通讯录、不碰 App 通知。理由：短信这条链路已经实测跑通（§7.2、§7.6），能独立交付；其余几项各自都有未验证的部分，混在一起会拖慢 V1。
+
+### 9.2 后续版本（Backlog）
+
+按价值排序，各自独立可做：
+
+| # | 事项 | 依据 | 前置 |
+|---|---|---|---|
+| B1 | MNS 事件订阅，新短信延迟从轮询周期压到秒级 | §7.4 | 无，纯增量 |
+| B2 | 来电提醒（HFP 信令，CLIP 取号码） | §5.2.3 | 需验证不抢占系统音频 |
+| B3 | 未接来电记录 | §5.2.2 | 需先做 B4 |
+| B4 | 通讯录同步，号码 → 姓名 | §5.2.2 | 无 |
+| B5 | 菜单栏应用形态（SwiftUI `MenuBarExtra`），替换现在的命令行窗口 | §6.1 | 无 |
+| B6 | 开机自启、断连自动重连 | §7.6 末项 | 无 |
+| B7 | 短信正文按需取回，应对超长短信被 `subject` 截断 | §7.3 | 需先定下 `x-bt/message` 的请求写法 |
+| B8 | 消息列表 UI、搜索、验证码识别与一键复制 | V1 之后的体验补足 | 需先做 B5 |
+
+**明确不做**：App 推送通知。见 §3.3，任何路线都拿不到。
+
+### 9.3 增强：如果拿到企业 ACL 权限
 
 若后续以企业开发者身份拿到 `READ_MESSAGES` / `RECEIVE_SMS` 的 ACL 白名单，可以叠加一个手机端鸿蒙 App 做局域网推送，作为蓝牙之外的冗余通道（例如手机不在蓝牙范围内时仍能收到短信）。
 
 但注意：**通知监听权限（`NOTIFICATION_CONTROLLER`）级别更高，仍无解**，App 通知这项在任何路线下都拿不到。
-
-### 9.3 增强：Mac 侧体验补足
-
-- 短信验证码自动识别并高亮，支持一键复制
-- 来电时 Mac 全屏弹窗 + 响铃
-- 通讯录反查，陌生号码标注归属地
-- 与 macOS 聚焦（Spotlight）集成，可搜索历史短信
 
 ---
 
