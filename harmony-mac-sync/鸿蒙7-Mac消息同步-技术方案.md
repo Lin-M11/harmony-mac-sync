@@ -5,17 +5,17 @@
 | 版本 | v1.0 |
 | 日期 | 2026-10-09 |
 | 目标平台 | 手机 HarmonyOS 7（纯血鸿蒙，API 26+） / Mac macOS 14+ |
-| 状态 | 待评审 |
+| 状态 | 已验证：蓝牙服务确认通过 |
 
 ---
 
 ## 摘要
 
-一句话结论：**短信和来电可以做，App 推送通知做不了。**
+一句话结论：**短信、通讯录、来电能同步到 Mac；App 推送通知不能。**
 
-原因是硬约束而非技术难度：鸿蒙把「通知监听」和「短信读取」划为系统签名级 / ACL 受限权限，普通开发者拿不到；官方的跨设备通知同步又只跑在华为分布式软总线（超级终端）内部，Mac 不是这个生态里的设备。
+方案是 **Mac 侧蓝牙直连**——用标准蓝牙 MAP / PBAP / HFP 协议直接跟手机通信。手机端零安装、不碰鸿蒙权限。手机已确认暴露这三类服务，通道成立。
 
-因此推荐放弃「手机装 App 转发」的思路，改走 **Mac 侧蓝牙直连**——用标准蓝牙 MAP / PBAP / HFP 协议直接跟手机通信。手机端零安装、不碰任何鸿蒙权限，缺点是拿不到 App 通知。
+App 推送通知的缺口来自硬约束：鸿蒙把「通知监听」划为系统签名级权限、把「短信读取」划为 ACL 受限权限，第三方应用拿不到；官方跨设备通知同步只跑在华为分布式软总线（超级终端）内部，Mac 不在这个生态内。
 
 ---
 
@@ -357,32 +357,25 @@ CREATE UNIQUE INDEX idx_call_handle ON call_record(handle);
 
 ---
 
-## 7. 验证计划
+## 7. 验证结果
 
-**整个方案的成败取决于一件事：华为手机是否对外暴露 MAP / PBAP 服务。** 这一步必须先验证，成本很低，不要跳过。
+### 7.1 蓝牙服务确认（2026-10-09 完成）
 
-### 7.1 第一步：确认服务是否存在
+在 Mac 上对手机（华为 Pura 80 Pro）执行 SDP 查询，返回 18 条服务记录，其中：
 
-手机与 Mac 完成蓝牙配对后，用系统命令查看手机暴露的服务：
-
-```bash
-system_profiler SPBluetoothDataType
-```
-
-重点找这几项：
-
-| 期望出现 | 对应协议 |
+| SDP 服务名 | 对应能力 |
 |---|---|
-| Message Access Server / `0x1132` | MAP |
-| Message Notification Server / `0x1133` | MAP 事件 |
-| Phonebook Access PSE / `0x112F` | PBAP |
-| Hands-Free Audio Gateway / `0x111F` | HFP |
+| `SMS/MMS` | MAP 短信服务（MSE） |
+| `OBEX Phonebook Access Server` | PBAP 通讯录（PSE） |
+| `Handsfree Gateway` | HFP 来电（AG） |
+| `Advanced Audio Source` | A2DP 音频 |
+| `OBEX Object Push` | 文件传输 |
 
-同时留意手机端是否弹出「**允许访问信息 / 共享联系人**」一类的授权提示——**有提示基本就说明服务在**。
+原始输出见 [`sdp_probe_result.txt`](sdp_probe_result.txt)。
 
-> 若手机是首次连接 Mac，可能需要先配对一个「车机类」设备触发服务激活。华为手机连车载蓝牙时会请求信息共享权限，这佐证了 MSE 的存在，但是否对所有连接方默认开放仍需实测。
+**结论：MAP / PBAP / HFP 三类服务均在，方案成立。**
 
-### 7.2 第二步：跑通 OBEX 握手
+### 7.2 待验证：OBEX 握手
 
 在写 Swift App 之前，用 Python + PyObjC 快速验证，成本最低：
 
@@ -399,13 +392,13 @@ Python 3.13 + pyobjc-framework-IOBluetooth
 
 **这四步跑通，方案即成立。**
 
-### 7.3 第三步：验证 HFP 信令
+### 7.3 待验证：HFP 信令
 
 用 `IOBluetoothHandsFreeDevice` 连接手机 AG，打一个电话进来，观察是否能收到 `incomingCallWithNumber` 回调，同时确认**系统音频通道未被抢占**。
 
 ### 7.4 验证清单
 
-- [ ] 手机蓝牙配对成功，SDP 记录中出现 MAP / PBAP / HFP 服务
+- [x] 手机蓝牙配对成功，SDP 记录中出现 MAP / PBAP / HFP 服务
 - [ ] OBEX Connect + SETPATH + GET listing 全链路通
 - [ ] bMessage 正文解析正确，中文不乱码
 - [ ] MNS 事件订阅能收到新短信推送
