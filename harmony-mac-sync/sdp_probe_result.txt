@@ -1,0 +1,61 @@
+========================================
+ SDP 服务探查
+========================================
+[1/5] 构造设备对象 ...
+[2/5] 设备对象 OK，读取属性 ...
+名称     : 131******12的Pura 80 Pro
+地址     : e8-1e-92-55-2d-d4
+已配对   : 是
+已连接   : 是
+RSSI     : -32
+
+[3/5] 发起 SDP 查询（最多等 10 秒）...
+performSDPQuery 返回码: 0
+
+✓ 共发现 18 个服务记录
+========================================
+[0] (无名)
+      (无 UUID)
+[1] Advanced Audio Source
+      (无 UUID)
+[2] Handsfree Gateway
+      (无 UUID)
+[3] Handsfree Gateway
+      (无 UUID)
+[4] Headset Gateway
+      (无 UUID)
+[5] Android Network User
+      (无 UUID)
+[6] Android Network Access Point
+      (无 UUID)
+[7] (无名)
+      (无 UUID)
+[8] (无名)
+      (无 UUID)
+[9] (无名)
+      (无 UUID)
+[10] SMS/MMS
+      (无 UUID)
+[11] OBEX Phonebook Access Server
+      (无 UUID)
+[12] OBEX Object Push
+      (无 UUID)
+[13] BrManagerInsecure
+      (无 UUID)
+[14] LegacyCtrl
+      (无 UUID)
+[15] LegacyCtrlPc
+      (无 UUID)
+[16] (无名)
+      (无 UUID)
+[17] AV Remote Control Target
+      (无 UUID)
+========================================
+ 关键能力判定
+========================================
+✗ 无  MAP 短信服务        → 短信读取
+✗ 无  MAP 新消息事件      → 短信实时推送
+✗ 无  PBAP 通讯录         → 号码反查姓名
+✗ 无  HFP 音频网关        → 来电提醒
+
+结论：未发现 MAP 服务，需要进一步排查（见方案文档 §7）。

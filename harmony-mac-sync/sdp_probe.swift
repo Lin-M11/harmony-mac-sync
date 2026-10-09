@@ -29,9 +29,11 @@ func shortUUID(_ s: String) -> String {
 // IOBluetoothSDPUUID 没有直接取字符串的方法，从 description 里正则提取
 func extractUUID(_ obj: Any) -> String? {
     let desc = String(describing: obj)
-    guard let r = desc.range(of: "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
-                             options: .regularExpression) else { return nil }
-    return shortUUID(String(desc[r]))
+    if let r = desc.range(of: "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
+                          options: .regularExpression) {
+        return shortUUID(String(desc[r]))
+    }
+    return "?" + String(desc.prefix(40))
 }
 
 let known: [String: String] = [
@@ -102,22 +104,13 @@ for (i, item) in services.enumerated() {
     let name = rec.getServiceName() ?? "(无名)"
     var uuids: [String] = []
 
-    if let attrs = rec.attributes as? [AnyHashable: Any] {
-        var classList: IOBluetoothSDPDataElement? = nil
-        for (k, v) in attrs {
-            if let num = k as? NSNumber, num.intValue == 1,
-               let de = v as? IOBluetoothSDPDataElement {
-                classList = de
-            }
-        }
-        if let de = classList,
-           de.getTypeDescriptor() == 3,
-           let arr = de.getArrayValue() as? [IOBluetoothSDPDataElement] {
-            for e in arr {
-                if let u = e.getUUIDValue(), let s = extractUUID(u) {
-                    uuids.append(s)
-                    found.insert(s)
-                }
+    if let de = rec.getAttributeDataElement(1), de.getTypeDescriptor() == 3,
+       let arr = de.getArrayValue() as? [Any] {
+        for e in arr {
+            if let el = e as? IOBluetoothSDPDataElement,
+               let u = el.getUUIDValue(), let s = extractUUID(u) {
+                uuids.append(s)
+                found.insert(s)
             }
         }
     }
