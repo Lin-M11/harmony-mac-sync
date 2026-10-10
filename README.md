@@ -16,8 +16,12 @@ Mac 作为蓝牙客户端，直连手机暴露的标准蓝牙服务，手机端�
 
 V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询收件箱 → 只对新增短信弹通知并落库。
 
+![手机收到短信后，Mac 上弹出的系统通知](harmony-mac-sync/assets/notification.png)
+
+*手机上收到的小红书验证码短信，几秒后在 Mac 上弹成系统通知——图标来自 App，标题是发件号码，正文是短信内容。*
+
 - 新短信延迟 2–4 秒（`--interval 2`）
-- 通知以 App 身份弹出：显示「鸿蒙短信同步」与图标，留在通知中心里
+- 通知以 App 身份弹出（`HarmonySync.app`）：带 App 图标，能在通知中心里翻到
 - 已见 handle 持久化，重启不重复通知
 - 手机端 SDP 记录、OBEX 全链路、列表解析、事件订阅的实测记录见技术方案 §7
 
@@ -32,6 +36,7 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 | `harmony-mac-sync/run_sync.command` | 双击启动：增量同步 |
 | `harmony-mac-sync/run_fast_sync.command` | 双击启动：秒级轮询 |
 | `harmony-mac-sync/run_notify_check.command` | 双击运行：通知自检 |
+| `harmony-mac-sync/assets/notification.png` | 上面那张通知截图 |
 
 验证阶段的探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力）已从工作树移除，取证结果收在技术方案 §7.1–§7.4；源码在 git 历史里，需要时 `git checkout <提交> -- <路径>` 取回。
 
