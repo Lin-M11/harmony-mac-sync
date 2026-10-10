@@ -357,46 +357,51 @@ V1：
 ### 6.4 数据模型
 
 ```sql
-CREATE TABLE message (
+-- 已见 handle：去重的依据
+CREATE TABLE IF NOT EXISTS seen_handle (
+  handle      TEXT PRIMARY KEY,
+  stamp       TEXT NOT NULL,              -- 列表里自带的日期串，用于按时间清理
+  first_seen  INTEGER NOT NULL
+);
+
+-- 新到达的短信：只有新增的才写进来
+CREATE TABLE IF NOT EXISTS message (
   id           INTEGER PRIMARY KEY,
-  handle       TEXT    NOT NULL,          -- 消息唯一标识，用于去重
-  folder       TEXT    NOT NULL,          -- inbox / sent / ...
-  direction    TEXT    NOT NULL,          -- in / out
+  handle       TEXT NOT NULL UNIQUE,
   peer_number  TEXT,
   peer_name    TEXT,
   body         TEXT,
-  timestamp    INTEGER NOT NULL,
-  is_read      INTEGER DEFAULT 0,
-  notified_at  INTEGER                    -- 弹过通知的时间，NULL 表示还没弹
+  stamp        TEXT,                      -- 列表里的日期串
+  received_at  INTEGER NOT NULL,          -- 本机收到的时刻
+  notified_at  INTEGER                    -- 弹过通知的时刻
 );
-CREATE UNIQUE INDEX idx_message_handle ON message(handle);
 
-CREATE TABLE call_record (                -- 后续版本 B3
-  id           INTEGER PRIMARY KEY,
-  handle       TEXT    NOT NULL,
-  peer_number  TEXT,
-  peer_name    TEXT,
-  type         TEXT    NOT NULL,          -- incoming / outgoing / missed
-  started_at   INTEGER NOT NULL,
-  duration     INTEGER DEFAULT 0
-);
-CREATE UNIQUE INDEX idx_call_handle ON call_record(handle);
-
-CREATE TABLE sync_state (
+CREATE TABLE IF NOT EXISTS sync_state (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- 后续版本 B3
+CREATE TABLE IF NOT EXISTS call_record (
+  id           INTEGER PRIMARY KEY,
+  handle       TEXT NOT NULL UNIQUE,
+  peer_number  TEXT,
+  peer_name    TEXT,
+  type         TEXT NOT NULL,             -- incoming / outgoing / missed
+  started_at   INTEGER NOT NULL,
+  duration     INTEGER DEFAULT 0
+);
 ```
 
-`handle` 取 MAP 的消息句柄或 PBAP 记录的 UID，配合唯一索引天然实现幂等，重复触发不会重复通知。
+`handle` 取 MAP 列表里的消息句柄，配合 `UNIQUE` 天然实现幂等，重复触发不会重复通知。
 
-`sync_state` 存同步游标，几个键：
+**`seen_handle` 与 `message` 分开**：建立基线时只往 `seen_handle` 记 handle，不落正文——首次绑定会把收件箱里已有的几十条一次记成已见，这些不需要搬运。`seen_handle` 按 `stamp` 保留 120 天，超期由 `prune` 清掉。
+
+`sync_state` 目前只用一个键：
 
 | 键 | 含义 |
 |---|---|
-| `bootstrap_at` | 建立基线的时间，早于它的短信只入库不通知 |
-| `last_poll_at` | 上次轮询时间 |
-| `last_seen_handle` | 上次见到的最大 handle，用于快速判断有没有新消息 |
+| `bootstrap_at` | 建立基线的时间。库里没有它，说明是首次运行 |
 
 ### 6.5 工程配置
 
