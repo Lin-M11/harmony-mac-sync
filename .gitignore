@@ -1,15 +1,8 @@
 .DS_Store
-*.bin
-SDPProbe.app/
-OBEXProbe.app/
-OBEXConnect.app/
-OBEXPathProbe.app/
-MAPClient.app/
-*.cstemp*
 __pycache__/
 *.pyc
-OBEXBodyProbe.app/
-HarmonySync.app/
-SDPPublishProbe.app/
-PhoneCapProbe.app/
-SDPStateProbe.app/
+
+# 编译产物与打包结果，由 build.sh 生成
+*.bin
+*.app/
+*.cstemp*

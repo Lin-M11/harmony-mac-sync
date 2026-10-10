@@ -86,6 +86,43 @@ func frame(opcode: UInt8, body: [UInt8]) -> [UInt8] {
     return [opcode, UInt8((total >> 8) & 0xFF), UInt8(total & 0xFF)] + body
 }
 
+// MARK: - 订阅新消息事件的报文
+
+// 规范要求的头部组合：连接标识 + 类型 + 通知状态，正文放一个填充字节。
+// 空正文的 PUT 在 OBEX 里等同删除，所以这个填充字节不能省。
+let NOTIF_STATUS_TAG: UInt8 = 0x0E     // 通知状态
+let NOTIF_STATUS_ON: UInt8 = 0x01      // 打开
+let NOTIF_BODY_FILLER: UInt8 = 0x30    // 规范规定的填充字节
+
+// 订阅新消息事件。规范要求的头部组合是「连接标识 + 类型 + 通知状态 + 填充字节」，
+// 这里额外备几种写法兜底。
+let SESSION_ID_GUESS: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+
+let NOTIF_VARIANTS = [
+    "ConnID + Type + 通知状态 + 填充字节",
+    "无 ConnID + Type + 通知状态 + 填充字节",
+    "已学到的 ConnID + Type + 通知状态 + 填充字节",
+    "ConnID + Name + Type + 通知状态 + 填充字节",
+    "ConnID + Type + 通知状态 + Body 填充字节",
+]
+
+func notifRequest(variant: Int, learnedConnID: [UInt8]?) -> [UInt8] {
+    var body: [UInt8] = []
+    if variant == 3 { body += lenHeader(HDR_NAME, Array(NOTIF_REG_TYPE.utf8)) }
+    body += lenHeader(HDR_TYPE, Array(NOTIF_REG_TYPE.utf8))
+    body += lenHeader(HDR_APPPARAMS, [NOTIF_STATUS_TAG, 0x01, NOTIF_STATUS_ON])
+    body += lenHeader(variant == 4 ? HDR_BODY : HDR_END_OF_BODY, [NOTIF_BODY_FILLER])
+
+    var cid: [UInt8]?
+    switch variant {
+    case 0, 3, 4: cid = SESSION_ID_GUESS
+    case 1: cid = nil
+    default: cid = learnedConnID
+    }
+    if let c = cid { body = [HDR_CONNID] + c + body }
+    return frame(opcode: OBEX_PUT_FINAL, body: body)
+}
+
 // MARK: - 列表解析
 
 struct Sms {
@@ -355,7 +392,7 @@ let RFCOMM_UUID16: UInt16 = 0x0003
 let OBEX_UUID16: UInt16 = 0x0008
 let BROWSE_GROUP_UUID16: UInt16 = 0x1002
 let MNS_RFCOMM_CHANNEL: UInt8 = 10      // 期望值，被占用时系统会另分配
-let EVENT_REPORT_TYPE = "x-bt/MAP-Event-Report"
+let EVENT_REPORT_TYPE = "x-bt/map-event-report"
 
 func sdpUInt16(_ value: UInt16) -> [String: Any] {
     ["DataElementType": 1, "DataElementValue": Data([UInt8(value >> 8), UInt8(value & 0xFF)])]
@@ -365,22 +402,103 @@ func sdpUInt8(_ value: UInt8) -> [String: Any] {
     ["DataElementType": 1, "DataElementValue": Data([value])]
 }
 
-func mnsServiceDict(channel: UInt8) -> [String: Any] {
-    [
+func sdpUInt32(_ value: UInt32) -> [String: Any] {
+    ["DataElementType": 1, "DataElementValue": Data([
+        UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
+        UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+    ])]
+}
+
+// 协议栈的写法。本机 SDP 服务器对「数组套数组」的接受程度不确定，所以几种都备着，
+// 能读回通道号的那份才算数。
+enum PdlStyle: String {
+    case nestedDict = "嵌套数组"
+    case elementTree = "数据元素树"
+    case uuidOnly = "仅 UUID"
+}
+
+func mnsServiceDict(channel: UInt8, style: PdlStyle, includeProfile: Bool = true) -> [String: Any] {
+    let l2capU = IOBluetoothSDPUUID(uuid16: L2CAP_UUID16)!
+    let rfcommU = IOBluetoothSDPUUID(uuid16: RFCOMM_UUID16)!
+    let obexU = IOBluetoothSDPUUID(uuid16: OBEX_UUID16)!
+
+    var dict: [String: Any] = [
         "0001 ServiceClassIDList": [IOBluetoothSDPUUID(uuid16: MNS_UUID16)!],
-        "0004 ProtocolDescriptorList": [
-            [IOBluetoothSDPUUID(uuid16: L2CAP_UUID16)!, sdpUInt16(0x0003)],
-            [IOBluetoothSDPUUID(uuid16: RFCOMM_UUID16)!, sdpUInt8(channel)],
-            [IOBluetoothSDPUUID(uuid16: OBEX_UUID16)!],
-        ],
         "0005 BrowseGroupList": [IOBluetoothSDPUUID(uuid16: BROWSE_GROUP_UUID16)!],
-        "0009 BluetoothProfileDescriptorList": [
-            [IOBluetoothSDPUUID(uuid16: MAP_PROFILE_UUID16)!, sdpUInt16(0x0102)]
-        ],
         "0100 ServiceName": "MAP MNS",
         // 低两位：Notification Registration + Notification
-        "0317 SupportedFeatures": ["DataElementType": 1, "DataElementValue": Data([0x00, 0x00, 0x00, 0x03])],
+        "0317 SupportedFeatures": sdpUInt32(0x00000003),
     ]
+
+    switch style {
+    case .nestedDict:
+        dict["0004 ProtocolDescriptorList"] = [
+            [l2capU, sdpUInt16(0x0003)],
+            [rfcommU, sdpUInt8(channel)],
+            [obexU],
+        ]
+    case .uuidOnly:
+        dict["0004 ProtocolDescriptorList"] = [[l2capU], [rfcommU], [obexU]]
+    case .elementTree:
+        if let tree = elementTreePdl(channel: channel) {
+            dict["0004 ProtocolDescriptorList"] = tree
+        }
+    }
+
+    if includeProfile {
+        dict["0009 BluetoothProfileDescriptorList"] = [
+            [IOBluetoothSDPUUID(uuid16: MAP_PROFILE_UUID16)!, sdpUInt16(0x0102)]
+        ]
+    }
+    return dict
+}
+
+// 协议栈整棵树都用数据元素自己搭
+func elementTreePdl(channel: UInt8) -> IOBluetoothSDPDataElement? {
+    func seq(_ items: [Any]) -> IOBluetoothSDPDataElement? {
+        IOBluetoothSDPDataElement.withElementValue(items as NSObject)
+    }
+    guard let l2capEntry = seq([IOBluetoothSDPUUID(uuid16: L2CAP_UUID16)!, Data([0x00, 0x03])]),
+          let rfcommEntry = seq([IOBluetoothSDPUUID(uuid16: RFCOMM_UUID16)!, Data([channel])]),
+          let obexEntry = seq([IOBluetoothSDPUUID(uuid16: OBEX_UUID16)!]) else { return nil }
+    return seq([l2capEntry, rfcommEntry, obexEntry])
+}
+
+// 读回记录里实际存在的属性 ID，用来判断发布有没有丢东西
+func sdpAttrIDs(_ rec: IOBluetoothSDPServiceRecord) -> String {
+    let a = rec.attributes ?? [:]
+    var out: [String] = []
+    for k in a.keys {
+        if let n = k as? NSNumber { out.append(String(format: "%04X", n.uint16Value)) }
+    }
+    return out.sorted().joined(separator: ",")
+}
+
+// 从事件报告正文里取 <event .../> 的属性。
+// 手机生成的 XML 不保证把正文里的引号转义，所以按属性名扫描，不交给 XMLParser。
+func parseEventReport(_ xml: String) -> String {
+    guard let start = xml.range(of: "<event") else { return "" }
+    let rest = xml[start.upperBound...]
+    let end = rest.range(of: ">")?.lowerBound ?? rest.endIndex
+    let tag = String(rest[..<end])
+
+    func attr(_ name: String) -> String? {
+        for quote in ["\"", "'"] {
+            // 前面锚一个空格，避免 msg_type 被当成 type、old_folder 被当成 folder
+            let needle = " " + name + "=" + quote
+            guard let r = tag.range(of: needle) else { continue }
+            let tail = tag[r.upperBound...]
+            guard let close = tail.range(of: quote) else { continue }
+            return String(tail[..<close.lowerBound])
+        }
+        return nil
+    }
+
+    var parts = ["type=\(attr("type") ?? "?")"]
+    if let h = attr("handle") { parts.append("handle=\(h)") }
+    if let f = attr("folder") { parts.append("folder=\(f)") }
+    if let m = attr("msg_type") { parts.append("msg_type=\(m)") }
+    return parts.joined(separator: " ")
 }
 
 // 手机推事件时连上来的那条通道
@@ -423,20 +541,22 @@ final class MnsChannel: NSObject, IOBluetoothRFCOMMChannelDelegate {
         let type = headers.first { $0.0 == HDR_TYPE }.map { String(decoding: $0.1, as: UTF8.self) } ?? ""
         var body: [UInt8] = []
         for (id, v) in headers where id == HDR_BODY || id == HDR_END_OF_BODY { body += v }
+        var appParams: [UInt8] = []
+        for (id, v) in headers where id == HDR_APPPARAMS { appParams += v }
 
         switch op & 0x7F {
         case 0x00:
             emit("  [MNS] ← CONNECT（\(packet.count) 字节）")
             respond(0xA0)
         case 0x02:
-            emit("  [MNS] ← PUT  Type=\(type.isEmpty ? "?" : type)  Body \(body.count) 字节 \(hex(Array(body.prefix(24))))")
-            if type == EVENT_REPORT_TYPE {
-                let newMessage = appParam(body, tag: 0x01)
-                let folder = appParam(body, tag: 0x03)
-                let detail = "NewMessage=\(newMessage.map { String($0) } ?? "?")"
-                    + (folder != nil ? "  Folder=\(folder!)" : "")
+            if type.lowercased().contains("map-event-report") {
+                let report = parseEventReport(String(decoding: body, as: UTF8.self))
+                var detail = report.isEmpty ? "（正文 \(body.count) 字节）" : report
+                if let masID = appParam(appParams, tag: 0x0F) { detail += "  MAS实例=\(masID)" }
                 emit("  [MNS] ★ 事件报告：\(detail)")
                 onEvent(detail)
+            } else {
+                emit("  [MNS] ← PUT  Type=\(type.isEmpty ? "?" : type)  Body \(body.count) 字节")
             }
             respond(0xA0)
         case 0x01:
@@ -463,46 +583,86 @@ final class MnsChannel: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
 final class MnsServer: NSObject {
     var record: IOBluetoothSDPServiceRecord?
-    var notification: IOBluetoothUserNotification?
+    var notifications: [IOBluetoothUserNotification] = []
     var channels: [MnsChannel] = []
     var onEvent: (String) -> Void = { _ in }
     var channelID: BluetoothRFCOMMChannelID = 0
+    var ignoreChannelID: BluetoothRFCOMMChannelID = 0
+    var handledIDs: Set<BluetoothRFCOMMChannelID> = []
+
+    // 候选写法：从最贴近规范的一份开始，读回通道号即停
+    let CANDIDATES: [(PdlStyle, Bool)] = [
+        (.nestedDict, true),
+        (.elementTree, true),
+        (.uuidOnly, false),
+        (.nestedDict, false),
+    ]
 
     func start(onEvent: @escaping (String) -> Void) {
         self.onEvent = onEvent
 
-        guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with:
-            mnsServiceDict(channel: MNS_RFCOMM_CHANNEL)) else {
-            emit("  [MNS] ✗ SDP 记录发布失败")
+        for (index, cand) in CANDIDATES.enumerated() {
+            let label = "写法 \(index + 1)（\(cand.0.rawValue)\(cand.1 ? " + Profile" : "")）"
+            let dict = mnsServiceDict(channel: MNS_RFCOMM_CHANNEL, style: cand.0, includeProfile: cand.1)
+            guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) else {
+                emit("  [MNS] \(label) 发布返回空")
+                continue
+            }
+            // 发布是异步的，先让它落定再读回
+            RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+
+            var cid: BluetoothRFCOMMChannelID = 0
+            let ok = rec.getRFCOMMChannelID(&cid) == kIOReturnSuccess
+            let hasPDL = rec.getAttributeDataElement(BluetoothSDPServiceAttributeID(0x0004)) != nil
+            emit("  [MNS] \(label) 属性 [\(sdpAttrIDs(rec))]  协议栈 \(hasPDL ? "有" : "没有")  通道 \(ok ? String(cid) : "读不到")")
+
+            if ok {
+                record = rec
+                channelID = cid
+                emit("  [MNS] ✓ 采用\(label)，RFCOMM 通道 \(cid)")
+                break
+            }
+            record = rec   // 保底：至少留一份记录挂在本机 SDP 服务器上
+            _ = rec.remove()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        }
+
+        guard record != nil else {
+            emit("  [MNS] ✗ 四种写法都没能在本机 SDP 服务器建出记录")
             return
         }
-        record = rec
 
-        var cid: BluetoothRFCOMMChannelID = 0
-        if rec.getRFCOMMChannelID(&cid) == kIOReturnSuccess {
-            channelID = cid
-            emit("  [MNS] ✓ SDP 记录已发布，RFCOMM 通道 \(cid)")
-        } else {
-            emit("  [MNS] ✓ SDP 记录已发布，未读到通道号")
-        }
-
-        notification = IOBluetoothRFCOMMChannel.register(
+        // 通道号读得到就按通道号监听；再叠一层「所有入站通道」，防通道号对不上
+        if let n = IOBluetoothRFCOMMChannel.register(
             forChannelOpenNotifications: self,
             selector: #selector(incoming(_:channel:)),
             withChannelID: channelID,
-            direction: kIOBluetoothUserNotificationChannelDirectionIncoming)
+            direction: kIOBluetoothUserNotificationChannelDirectionIncoming) {
+            notifications.append(n)
+        }
+        if let n = IOBluetoothRFCOMMChannel.register(
+            forChannelOpenNotifications: self,
+            selector: #selector(incoming(_:channel:))) {
+            notifications.append(n)
+        }
 
-        if notification != nil {
-            emit("  [MNS] 已监听入站连接，等手机回连")
-        } else {
+        if notifications.isEmpty {
             emit("  [MNS] ✗ 入站监听注册失败")
+        } else {
+            let scope = channelID == 0 ? "所有入站通道" : "通道 \(channelID) 及所有入站通道"
+            emit("  [MNS] 已监听\(scope)，等手机回连")
         }
     }
 
     @objc func incoming(_ note: IOBluetoothUserNotification!, channel: IOBluetoothRFCOMMChannel!) {
         guard let ch = channel else { return }
+        let id = ch.getID()
+        // 别把我们自己连手机 MAS 的那条通道当成回连
+        guard id != ignoreChannelID else { return }
+        guard !handledIDs.contains(id) else { return }
+        handledIDs.insert(id)
         emit("")
-        emit("  [MNS] 有设备连进来了（通道 \(ch.getID())）")
+        emit("  [MNS] 有设备连进来了（通道 \(id)）")
         let mc = MnsChannel(channel: ch, onEvent: onEvent)
         channels.append(mc)
         mc.start()
@@ -630,33 +790,9 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         send(frame(opcode: OBEX_SETPATH, body: body), note: "SETPATH \(folder)")
     }
 
-    // 订阅新消息事件。几种写法依次试
-    let NOTIF_VARIANTS = [
-        "ConnID + 空 EndOfBody",
-        "无 ConnID + 空 EndOfBody",
-        "ConnID，无 EndOfBody",
-        "无 ConnID，无 EndOfBody",
-        "ConnID + Target 头",
-        "ConnID + 空 Body 头",
-    ]
-
     func sendNotifRegistration() {
-        var body: [UInt8] = []
-        body += lenHeader(HDR_TYPE, Array(NOTIF_REG_TYPE.utf8))
-        body += lenHeader(HDR_APPPARAMS, [0x0B, 0x01, 0x01])   // NotificationStatus = on
-        switch notifVariant {
-        case 0, 1:
-            body += lenHeader(HDR_END_OF_BODY, [])
-        case 4:
-            body += lenHeader(HDR_TARGET, MAS_UUID)
-        case 5:
-            body += lenHeader(HDR_BODY, [])
-        default:
-            break
-        }
-        if notifVariant != 1 && notifVariant != 3 { body = withConnID(body) }
-        send(frame(opcode: OBEX_PUT_FINAL, body: body),
-             note: "订阅新消息事件［\(NOTIF_VARIANTS[notifVariant])］")
+        let packet = notifRequest(variant: notifVariant, learnedConnID: connectionID)
+        send(packet, note: "订阅新消息事件［\(NOTIF_VARIANTS[notifVariant])］")
     }
 
     func sendListing(forceFull: Bool = false) {
@@ -939,6 +1075,29 @@ if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
     exit(0)
 }
 
+// 本地自检：拿一份事件报告正文验解析，不碰蓝牙
+if let i = args.firstIndex(of: "--event"), i + 1 < args.count {
+    let path = args[i + 1]
+    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+        print("读不到 \(path)")
+        exit(1)
+    }
+    print("正文 \(text.count) 字")
+    print("解析结果：\(parseEventReport(text))")
+    exit(0)
+}
+
+// 本地自检：打印五种订阅写法的报文，不碰蓝牙
+if args.contains("--dump-notif") {
+    let learned: [UInt8] = [0x00, 0x00, 0x00, 0x07]
+    for (i, label) in NOTIF_VARIANTS.enumerated() {
+        let p = notifRequest(variant: i, learnedConnID: learned)
+        print("\(i) \(label)（\(p.count) 字节）")
+        print("   \(hex(p))")
+    }
+    exit(0)
+}
+
 let once = args.contains("--once")
 let reset = args.contains("--reset")
 if args.contains("--no-mns") { mnsEnabled = false }
@@ -985,6 +1144,7 @@ sync.baseline = !bootstrapped
 if mnsEnabled {
     emit("启动 MNS 服务端：发布 SDP 记录并监听")
     let mns = MnsServer()
+    mns.ignoreChannelID = channelID
     mns.start { detail in
         sync.pollNow(detail)
     }

@@ -199,16 +199,16 @@ Mac 作为蓝牙客户端，直接连接手机暴露的标准蓝牙服务。
 
 1. SDP 查询拿到 MSE 的 RFCOMM 通道号
 2. 连 MSE，`SETPATH` 到 `telecom/msg/inbox`
-3. 向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B` = `0x01`
+3. 向 MSE 订阅事件：`PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams 通知状态（`0x0E`）= `0x01`，正文带填充字节 `0x30`
 4. Mac 侧同时发布 MNS 的 SDP 记录（UUID `0x1133`）并监听，等手机连进来
-5. 有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-Event-Report`
+5. 有新短信时，手机主动连上 Mac 的 MNS 通道，`PUT` Type `x-bt/MAP-event-report`
 6. Mac 收到事件 → 立刻拉一次收件箱列表 → 与已见 handle 比对 → 对新增的那条弹通知并落库
 
 | 操作 | OBEX 请求 | 目标路径 / 头 |
 |---|---|---|
 | 进入收件箱 | `SETPATH` | `telecom/msg/inbox` |
 | 订阅新消息事件 | `PUT` | Type: `x-bt/MAP-NotificationRegistration` |
-| 收事件 | `PUT`（手机发起） | Type: `x-bt/MAP-Event-Report` |
+| 收事件 | `PUT`（手机发起） | Type: `x-bt/MAP-event-report` |
 | 列消息 | `GET` | Type: `x-bt/MAP-msg-listing`，AppParams `0x01` 限条数 |
 | 读正文（可选） | `GET` | Type: `x-bt/message`，Name: `<handle>` |
 | 回上级目录 | `SETPATH` | 空字符串（backup 语义） |
@@ -556,12 +556,12 @@ GET 续传: 0x83 | len | Connection ID                   ← 只带 Connection I
 
 ### 7.4 B1：MNS 事件订阅（已实现，待实测）
 
-方向是反的——**Mac 是 MNS 服务端，手机主动连过来**。所以要做两件事：
+方向是反的——**Mac 是 MNS 服务端，手机主动连过来**。要做三件事：
 
 **一、Mac 侧发布 MNS 的 SDP 记录并监听**
 
 ```swift
-IOBluetoothSDPServiceRecord.publishedServiceRecord(with: mnsServiceDict(channel: 10))
+IOBluetoothSDPServiceRecord.publishedServiceRecord(with: mnsServiceDict(...))
 IOBluetoothRFCOMMChannel.register(forChannelOpenNotifications: self,
                                   selector: #selector(incoming(_:channel:)),
                                   withChannelID: channelID,
@@ -578,80 +578,62 @@ SDP 记录的属性：
 | ServiceName | `MAP MNS` |
 | SupportedFeatures | `0x00000003`（Notification Registration + Notification） |
 
-通道号传期望值，被占用时系统会另分配，用 `getRFCOMMChannelID` 读回真实值。记录默认是临时的，进程退出即消失。
+发布是异步的：发出后先跑一两秒 RunLoop 再读回，**以「能不能读回 RFCOMM 通道号」作为记录是否可用的判据**。协议栈的写法准备了三种（嵌套数组 / 数据元素树 / 仅 UUID），再乘上「带不带 Profile 描述」共四种组合，逐个发布、读回、比对，取第一份能读回通道号的；都不行就保留最后一份挂在本机 SDP 服务器上。每次读回的属性 ID 与通道号都打进日志，便于事后核对。
+
+入站监听注册两层：一层按读回的通道号、一层不限通道（`register(forChannelOpenNotifications:selector:)`）。两层会对同一条通道各回调一次，按通道号去重，并排除自己连手机 MAS 的那条通道（`ignoreChannelID`）。
 
 **二、向 MSE 订阅**
 
-MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0x0B`（NotificationStatus）= `0x01`。这一条的请求写法没有先例可循，实现了四种组合依次回退：Connection ID 有/无 × 末尾空 `EndOfBody` 有/无。
+MAS 通道上发 `PUT`（`0x82`），头部三样：
+
+| 头部 | 值 |
+|---|---|
+| Connection ID | 会话号（`00 00 00 01`） |
+| Type | `x-bt/MAP-NotificationRegistration` |
+| AppParams | 通知状态：标签 `0x0E`、长度 1、值 `0x01` |
+
+**正文必须带一个填充字节 `0x30`**——OBEX 里正文为空的 `PUT` 等同删除，规范专门要求填 `'0'` 来规避。整包：opcode 3 + ConnID 5 + Type 头 36 + AppParams 头 6 + EndOfBody 头 4 = 54 字节。
+
+备用写法四种依次回退：不带 Connection ID、用已学到的 Connection ID、加 `Name` 头、末尾改用 `Body` 头。
 
 **三、收到事件后立即同步**
 
-手机连上 MNS 通道后推 `PUT`，Type `x-bt/MAP-Event-Report`，AppParams `0x01`（NewMessage）。Mac 应答 `0xA0` 并立刻拉一次收件箱列表，不等下一个轮询周期。
+手机连上 MNS 通道后推 `PUT`，Type `x-bt/MAP-event-report`，AppParams 带 MAS 实例号（标签 `0x0F`），正文是 XML：
 
-**实测（2026-10-09 11:39 / 11:49）**
-
-```
-[MNS] ✗ SDP 记录发布失败
-→ 订阅新消息事件［ConnID + 空 EndOfBody］（48 字节）
-  ✗ 响应码 0xC0（6 字节）
-    C0 00 06 49 00 03
-→ 订阅新消息事件［无 ConnID + 空 EndOfBody］（48 字节）
-  ✗ 响应码 0xC0（11 字节）
-    C0 00 0B CB 00 00 00 01 49 00 03
-⚠ 事件订阅未成功，本机继续用定时拉列表
+```xml
+<MAP-event-report version="1.0">
+  <event type="NewMessage" handle="…" folder="telecom/msg/inbox" msg_type="SMS_GSM"/>
+</MAP-event-report>
 ```
 
-响应体只有一条空的 `EndOfBody`（`49 00 03`），手机没给任何解释；带 Connection ID 的写法会把同一个 ID 回带在响应里。六种写法全部 `0xC0`。
+事件类型在正文的 `type` 属性里。解析按属性名扫描，属性名前锚一个空格——否则 `msg_type` 会被当成 `type`、`old_folder` 会被当成 `folder`。收到后应答 `0xA0` 并立刻拉一次收件箱列表，不等下一个轮询周期。
 
-**请求本身是合法的**：`x-bt/MAP-NotificationRegistration` 长 33 字节，Type 头 `3 + 33 = 36` 字节，加 AppParams（`4C 00 06 0B 01 01`）与空 `EndOfBody`，整包 48 字节——与日志一致。所以 `0xC0` 更可能来自**手机在注册时先做一次 SDP 查询、找不到 Mac 的 MNS 记录就拒**，而不是请求编码有误。定时轮询不受影响，功能没退化。
+**本地自检（2026-10-10，不连蓝牙）**
 
-**两条线索并行收敛**
+订阅报文与事件解析都在客户端里留了可离线运行的入口，先在本机把编码固定下来：
 
-**（1）SDP 记录发布（当前阻塞项）**
+```
+$ HarmonySync --dump-notif
+0 ConnID + Type + 通知状态 + 填充字节（54 字节）
+   82 00 36 CB 00 00 00 01 42 00 24 <Type 33 字节> 4C 00 06 0E 01 01 49 00 04 30
 
-`publishedServiceRecord(with:)` 返回 nil，记录没建起来。
+$ HarmonySync --event ev2.xml
+正文 226 字
+解析结果：type=MessageDeleted handle=0000000000000005 folder=telecom/msg/inbox msg_type=SMS_CDMA
+```
 
-十二种字典写法、每个用例各起一个进程跑下来：除「只给类 UUID」这一个用例外**全部返回成功**，而且**句柄都是同一个 `0x4F491133`**，属性却读不出来（服务名、PDL、RFCOMM 通道全读不到）。
+第二个用例把属性顺序打乱并塞入 `old_folder` / `msg_type` 干扰项，解析结果仍然正确。
 
-同一个句柄 + 空属性，不像发布成功，更像拿到了一条已经存在的记录（句柄低 16 位恰好是 `0x1133`）。所以下一步不试新写法，改用几个硬指标直接判定「发布有没有真的建出记录」：
+**排障要点**
 
-| 判据 | 依据 |
-|---|---|
-| `getServiceName()` | 读属性 `0x0100`。能读回写进去的名字，说明属性确实进了记录 |
-| `attributes` 原文 | 直接打印，不经过 Swift 字典转换，排除读取方式本身的问题 |
-| `remove()` 返回值 | 文档写明成功移除返回 `kIOReturnSuccess`；记录不存在时不会成功 |
-| 同进程发布两次的句柄对比 | 句柄不同 = 真建了两条；相同 = 拿到的是同一条 |
-| 换一个从未用过的 128 位类 UUID | 排除「`0x1133` 已有残留记录」这个可能 |
-| 按句柄删除 | 用 `IOBluetoothRemoveServiceWithRecordHandle` 绕过 `rec.remove()` |
-
-顺带找一下 C 层的 `IOBluetoothAddServiceDict`——文档注释里提到过配套的 `IOBluetoothRemoveServiceWithRecordHandle`，说明这一族接口可能还在，可以作为 ObjC 类方法之外的入口。
-
-同一进程里连续发布多条记录会互相干扰（守护进程侧的发布是异步的），所以探测一律**每个用例各起一个进程**。
-
-字典格式以官方文档为准：
-
-| 数据元素 | 写法 |
-|---|---|
-| 数字（类型 1、2） | `DataElementValue` 给 `Data`（网络序，长度即元素长度，可省 `DataElementSize`）；或给 `NSNumber` + `DataElementSize` |
-| UUID（类型 3） | `IOBluetoothSDPUUID`；或给 `Data`，类型与长度自动推断 |
-| 字符串（类型 4、8） | `NSString` |
-| 序列（类型 6、7） | `NSArray`，子元素逐个递归解析 |
-| 服务键名 | 十六进制属性 ID 打头，后面可跟空格加说明文字 |
-
-覆盖的写法：仅类 UUID、类 UUID + 服务名、协议栈只给 UUID 不带参数、协议栈只留 L2CAP、协议栈去掉 L2CAP 只留 RFCOMM + OBEX、数字用原始字节、数字用 `NSNumber` + 显式长度、数字放裸 `NSNumber`、L2CAP 换非保留 PSM、完整 MNS 记录、完整记录 + 显式记录句柄，以及 plist 文本往返构建（全程纯 Foundation 类型，排除 Swift 桥接因素）。
-
-**（2）手机是否支持通知注册（已确认支持）**
-
-见 §7.1.1：手机 MAS 的 `0x0317 SupportedFeatures = 0x000603FF`，位 0「通知注册」和位 1「通知」都置位。这条路成立，剩下的就是把 Mac 侧的 MNS 记录发布出去。
+订阅返回 `0xC0`，且响应体只有一条 `EndOfBody` 头（`49 00 03`）时，按顺序核对三处：通知状态参数是否用 `0x0E` 标签、长度为 1；正文是否带了填充字节 `0x30`；Connection ID 是否与当前会话一致。MAS 侧读不到通知状态参数即判为坏请求，这是 `0xC0` 的直接来源。
 
 **要观察的点**
 
-1. `getServiceName()` 能否读回写进去的名字、`remove()` 是否返回 `kIOReturnSuccess`——判定发布是真建了记录，还是只拿到一个句柄
-2. 同进程发布两次的句柄是否不同、换 128 位类 UUID 后句柄是否变化——判定「同一句柄」是记录复用还是句柄复用
-3. C 层 `IOBluetoothAddServiceDict` 是否存在，能否作为另一条发布入口
-4. 记录发布成功后，`x-bt/MAP-NotificationRegistration` 的订阅返回码是否变成 `0xA0`
-5. 手机是否真的发起这条回连——方向与平时的连接相反
-6. 实时性的下限由拉取间隔决定（`--interval`，默认 5 秒）；订阅生效后事件会立刻触发一次拉取，不等下一个周期
+1. 订阅返回码是否变成 `0xA0`
+2. 手机是否真的发起这条回连——方向与平时的连接相反
+3. 事件延迟：订阅生效后事件会立刻触发一次拉取，不等下一个周期
+4. 发布后读回的属性里 `0x0004` 是否出现、通道号是否读得到
 
 定时轮询继续保留：事件丢失时它是兜底，订阅不可用时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
 
@@ -697,14 +679,17 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 | `sdp_probe.swift` | SDP 查询手机蓝牙服务与通道号 | 已跑通 |
 | `phone_cap_probe.swift` | 展开手机 MAS 记录全部属性，读 `SupportedFeatures` | 已跑通，见 §7.1.1 |
 | `sdp_publish_probe.swift` | Mac 侧 SDP 记录发布，十二种字典写法各起一个进程 | 已跑通 |
-| `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 待跑 |
+| `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
+| `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 待跑，见 §7.4 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
-| `harmony_sync.swift` | 增量同步：新短信 → 系统通知 + 落库 | 已跑通 |
+| `harmony_sync.swift` | 增量同步：新短信 → 系统通知 + 落库；MNS 事件订阅 | 已跑通（增量同步） |
 | `obex_bodyprobe.swift` | 正文请求写法收敛 | 待跑 |
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
+
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
@@ -716,6 +701,8 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 | `--once` | 只跑一轮就退出 |
 | `--reset` | 清空本地记录，下次运行重新建立基线 |
 | `--parse <文件>` | 不连蓝牙，直接拿一份保存的列表验解析 |
+| `--event <文件>` | 不连蓝牙，拿一份事件报告正文验解析 |
+| `--dump-notif` | 不连蓝牙，打印五种订阅写法的报文字节 |
 
 **本地数据**：`~/Library/Application Support/HarmonySync/messages.db`
 
@@ -821,9 +808,24 @@ MAS 通道上发 `PUT`，Type `x-bt/MAP-NotificationRegistration`，AppParams `0
 | Type | `x-bt/MAP-msg-listing` | 请求消息列表 |
 | Type | `x-bt/message` | 请求消息正文 |
 | Type | `x-obex/folder-listing` | 请求目录结构 |
-| Type | `x-bt/MAP-Event-Report` | 订阅事件（MNS） |
-| AppParams `0x14` | Charset，1 字节 | 正文字符集 |
-| AppParams `0x01` | Attachment，1 字节 | 是否含附件 |
+| Type | `x-bt/MAP-NotificationRegistration` | 订阅 / 退订新消息事件 |
+| Type | `x-bt/MAP-event-report` | 手机推来的事件报告（MNS） |
+
+Type 字符串各家用的大小写不一致，比对时统一转小写。
+
+### MAP 应用参数标签
+
+| 标签 | 含义 | 长度 |
+|---|---|---|
+| `0x01` | MaxListCount | 2 字节 |
+| `0x02` | ListStartOffset | 2 字节 |
+| `0x0A` | Attachment | 1 字节 |
+| `0x0D` | NewMessage | 1 字节 |
+| `0x0E` | NotificationStatus | 1 字节（`0x01` 开、`0x00` 关） |
+| `0x0F` | MASInstanceID | 1 字节 |
+| `0x14` | Charset | 1 字节 |
+
+订阅新消息事件时用的通知状态标签是 `0x0E`（长度 1，`0x01` 开、`0x00` 关）；正文放一个填充字节 `0x30`，让这个 `PUT` 不被当成删除。
 
 ### 响应码
 
