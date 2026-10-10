@@ -21,6 +21,7 @@ var pollInterval: Double = 5.0           // 轮询间隔（秒），--interval �
 var mnsEnabled = true                    // --no-mns 可关掉事件订阅
 let LISTING_LIMIT_DEFAULT: UInt16 = 20   // 每次只取最新的 N 条，--limit 可改
 var listingLimit: UInt16 = LISTING_LIMIT_DEFAULT
+let LISTING_WIDEN_CAP: UInt16 = 200      // 窗口打满时放宽的上限
 let MAX_CHUNKS = 80
 let STEP_TIMEOUT: Double = 15.0
 let RETRY_DELAY: Double = 8.0
@@ -732,7 +733,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var pathIndex = 0
     var listingParamsSupported: Bool? = nil   // nil = 还没试出来
     var listingTriedFallback = false
-    var needFullRetry = false
+    var widened = false
     var baseline = false
     var pollCount = 0
     var notifVariant = 0
@@ -761,7 +762,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         phase = .connect
         pathIndex = 0
         listingTriedFallback = false
-        needFullRetry = false
+        widened = false
         immediatePollPending = false
 
         if let ch = channel { _ = ch.close() }
@@ -840,17 +841,18 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         send(packet, note: "订阅新消息事件［\(NOTIF_VARIANTS[notifVariant])］")
     }
 
-    func sendListing(forceFull: Bool = false) {
+    func sendListing(limit: UInt16? = nil) {
+        let n = limit ?? listingLimit
         var body: [UInt8] = []
         body += lenHeader(HDR_TYPE, Array(LISTING_TYPE.utf8))
         body += lenHeader(HDR_NAME, Array("inbox".utf8))
-        // MaxListCount：只要最新的 N 条。服务端不认时下面会退回整份列表。
-        let limited = !forceFull && listingParamsSupported != false
+        // MaxListCount：只要最新的 N 条。服务端不认时下面会退回不带这个参数的写法。
+        let limited = listingParamsSupported != false
         if limited {
-            let ap: [UInt8] = [0x01, 0x02, UInt8(listingLimit >> 8), UInt8(listingLimit & 0xFF)]
+            let ap: [UInt8] = [0x01, 0x02, UInt8(n >> 8), UInt8(n & 0xFF)]
             body += lenHeader(HDR_APPPARAMS, ap)
         }
-        let note = limited ? "GET 收件箱列表（最新 \(listingLimit) 条）" : "GET 收件箱列表（整份）"
+        let note = limited ? "GET 收件箱列表（最新 \(n) 条）" : "GET 收件箱列表（不带条数限制）"
         send(frame(opcode: OBEX_GET_FINAL, body: withConnID(body)), note: note)
     }
 
@@ -932,7 +934,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             if phase == .listing && listingParamsSupported != false && !listingTriedFallback {
                 listingParamsSupported = false
                 listingTriedFallback = true
-                emit("  ↻ 该请求形式被拒，改为整份列表")
+                emit("  ↻ 该请求形式被拒，改为不带条数限制")
                 sendListing()
                 return
             }
@@ -994,8 +996,16 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
 
-        if baseline {
-            // 建立基线：只记 handle，不通知、不存正文
+        var fresh: [Sms] = []
+        for m in msgs where !store.isSeen(m.handle) {
+            fresh.append(m)
+        }
+
+        // 首次接触：整窗全新，而本地记下的 handle 还没窗口多。
+        // 这种时候窗口外多半还压着一大堆更早的短信，逐条弹通知就成了刷屏。
+        // 把这一窗记成基线（只记 handle，不通知），之后只处理真正的新短信。
+        let seenCount = store.count("seen_handle")
+        if fresh.count == msgs.count && (baseline || seenCount < msgs.count) {
             for m in msgs { store.remember(m.handle, stamp: m.datetime) }
             store.setState("bootstrap_at", String(Int(Date().timeIntervalSince1970)))
             baseline = false
@@ -1006,20 +1016,17 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
 
-        var fresh: [Sms] = []
-        for m in msgs where !store.isSeen(m.handle) {
-            fresh.append(m)
-        }
-
-        // 窗口被打满且全是新短信：可能还有更早的新消息落在窗口外，改取整份
-        if !needFullRetry && listingParamsSupported != false
+        // 整窗全新、且本地基线不比窗口小：窗口可能不够宽，换一个更宽的再取一次。
+        // 一轮只放宽一次，下一轮回到正常窗口。不走「取整份列表」——整份要过一百多个分片，要好几分钟。
+        if !widened && listingParamsSupported != false
             && msgs.count >= Int(listingLimit) && fresh.count == msgs.count {
-            emit("  窗口已满且 \(fresh.count) 条全新，改取整份列表")
-            needFullRetry = true
-            sendListing(forceFull: true)
+            widened = true
+            let wide = min(listingLimit * 8, LISTING_WIDEN_CAP)
+            emit("  整窗全新，窗口放宽到 \(wide) 条再取一次")
+            sendListing(limit: wide)
             return
         }
-        needFullRetry = false
+        widened = false
 
         if fresh.isEmpty {
             emit("  无新短信（列表 \(msgs.count) 条）")

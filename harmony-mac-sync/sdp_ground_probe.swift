@@ -289,36 +289,36 @@ func caseTruth() {
     let before = selfQuery("发布前")
 
     print("")
-    print("[3] 发布一份完整 MNS 记录（简写字典 + 嵌套数组 + Profile）")
-    let dict = recordDict(style: .dictPlain, name: MNS_NAME, channel: 10, includeProfile: true)
-    guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) else {
-        print("  发布 ✗ 返回空，后面几步没法做")
-        return
+    print("[3] 两种数字写法各发一份，各自读回并用 remove() 配对")
+    var results: [(String, String)] = []      // (标签, 结论)
+    for (style, label) in [(NumStyle.dictSize, "完整字典"), (NumStyle.dictPlain, "简写字典")] {
+        let dict = recordDict(style: style, name: "\(MNS_NAME) \(label)", channel: 10, includeProfile: true)
+        guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) else {
+            print("  [\(label)] 发布 ✗ 返回空")
+            results.append((label, "发布返回空"))
+            continue
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        print("  [\(label)] 发布 ✓")
+        print("     - \(describe(rec))")
+
+        let rc1 = rec.remove()
+        let rc2 = rec.remove()
+        let ok1 = rc1 == kIOReturnSuccess
+        let ok2 = rc2 == kIOReturnSuccess
+        print("     remove() 第一次 \(rc1)\(ok1 ? "（成功）" : "（未成功）")，第二次 \(rc2)\(ok2 ? "（成功）" : "（未成功）")")
+        results.append((label, ok1 && !ok2 ? "remove 配对成立 → 记录确实挂上去过" : "remove 配对不成立"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
     }
-    RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-    print("  发布 ✓")
-    print("     - \(describe(rec))")
 
     print("")
-    print("[4] 发布后，查本机")
-    let after = selfQuery("发布后")
-
-    print("")
-    print("[5] 撤回这条记录，用返回值当判据")
-    let rc1 = rec.remove()
-    print("  第一次 remove() 返回 \(rc1)\(rc1 == kIOReturnSuccess ? "（成功）" : "（未成功）")")
-    let rc2 = rec.remove()
-    print("  第二次 remove() 返回 \(rc2)\(rc2 == kIOReturnSuccess ? "（成功）" : "（未成功）")  ← 已撤回时不该再成功，这是对照")
-
-    print("")
-    print("[6] 小结")
-    print("  手机查询 \(phoneCount) 条")
-    print("  本机查询：发布前 \(before) 条，发布后 \(after) 条")
-    if phoneCount > 0 && before == 0 && after == 0 {
-        print("  → 查询代码是通的（手机能查到），但本机查询在发布前后读数一样，区分不出记录在不在")
+    print("[4] 小结")
+    print("  手机查询 \(phoneCount) 条；本机查询：发布前 \(before) 条")
+    for (label, verdict) in results {
+        print("  \(label)：\(verdict)")
     }
-    if rc1 == kIOReturnSuccess && rc2 != kIOReturnSuccess {
-        print("  → remove() 的返回值能区分「记录在」与「记录已撤」")
+    if phoneCount > 0 && before == 0 {
+        print("  → 查询代码是通的（手机能查到），但本机查询读不到本机 SDP 数据库")
     }
 }
 
