@@ -286,7 +286,7 @@ Mac → 手机（本期可选实现）：
 | 语言 | Swift 5.9+ | 需要直接调 Objective-C 的 IOBluetooth |
 | UI | 命令行窗口（V1） | 日志即界面；菜单栏形态是 B5 |
 | 蓝牙 | **IOBluetooth** 框架 | `IOBluetoothOBEXSession` 提供 OBEX 原语 |
-| 通知 | `osascript`（V1）→ `UserNotifications` | V1 用系统脚本弹通知，绕开签名要求；B5 打包成应用后换 `UserNotifications`，通知显示为应用自己的名字 |
+| 通知 | **UserNotifications**（`UNUserNotificationCenter`） | 通知以 App 身份弹出：显示 App 名字与图标、留在通知中心；需要 `.app` 包承载身份，见 §7.6 |
 | 存储 | SQLite（系统 `libsqlite3`） | 存短信，支持检索；不引第三方依赖，`import SQLite3` 即可 |
 | 并发 | Swift Concurrency（Actor） | 蓝牙回调在 RunLoop 线程，需桥接到 actor |
 
@@ -400,13 +400,19 @@ CREATE TABLE sync_state (
 
 ### 6.5 工程配置
 
-**Info.plist**
+**Info.plist**（由 `build.sh` 生成）
 
 ```xml
-<key>LSUIElement</key><true/>
+<key>CFBundleIdentifier</key><string>com.linlu.harmonysync</string>
+<key>CFBundleDisplayName</key><string>鸿蒙短信同步</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>NSBluetoothAlwaysUsageDescription</key>
-<string>用于连接手机并同步短信、通话记录与来电提醒</string>
+<string>用于连接手机并读取短信与通知</string>
+<key>NSBluetoothPeripheralUsageDescription</key>
+<string>用于连接手机并读取短信与通知</string>
 ```
+
+图标放 `Contents/Resources/AppIcon.icns`；打包后 `lsregister -f` 向 LaunchServices 登记，通知中心才会按 App 显示名字与图标。运行时用 `NSApplication.setActivationPolicy(.accessory)` 常驻后台，不占 Dock 图标。
 
 **entitlements**（沙盒开启时）
 
