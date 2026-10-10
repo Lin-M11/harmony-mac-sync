@@ -176,14 +176,21 @@ func queryDevice(_ tag: String, address: String) -> Int {
     print("  [\(tag)] \(dev.name ?? "(无名)")  \(address)")
     print("  [\(tag)] 已配对 \(dev.isPaired() ? "是" : "否")   已连接 \(dev.isConnected() ? "是" : "否")")
     _ = dev.performSDPQuery(nil)
+    // 等条数稳定下来再读。只等「非空」会读到半截结果——实测刚重启完蓝牙时，
+    // 第一条记录一到就返回，只看到 1 条（正常是 18 条），而且服务名全是空的。
+    var last = 0
+    var stable = 0
     var waited = 0.0
-    while waited < 10.0 {
+    while waited < 12.0 {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         waited += 0.5
-        if let s = dev.services, !s.isEmpty { break }
+        let n = dev.services?.count ?? 0
+        if n > 0 && n == last { stable += 1 } else { stable = 0 }
+        last = n
+        if stable >= 4 { break }        // 连续 2 秒条数不变，认为查完了
     }
     let services = dev.services ?? []
-    print("  [\(tag)] SDP 查询到 \(services.count) 条记录")
+    print("  [\(tag)] SDP 查询到 \(services.count) 条记录（等了 \(String(format: "%.1f", waited)) 秒）")
     for item in services {
         guard let r = item as? IOBluetoothSDPServiceRecord else { continue }
         let mark = r.matchesUUID16(0x1133) ? "  ← MNS" : (r.matchesUUID16(0x1132) ? "  ← MAS" : "")
@@ -276,20 +283,17 @@ func casePhone() {
     queryDevice("手机", address: addr)
 }
 
-/// 一个进程里把「查询 → 发布 → 查询 → 撤回」串起来，让每一步的读数可比。
+/// 一个进程里把「查本机 → 发布 → 撤回」串起来，让每一步的读数可比。
 /// 拆成多个进程跑的时候，记录会随进程退出消失，前后读数对不上。
+/// 对手机的查询放在最后：远端查询会占住协议栈，发布排在它后面容易拿不到对象。
 func caseTruth() {
     let addr = CommandLine.arguments.count >= 3 ? CommandLine.arguments[2] : PHONE_DEFAULT
 
-    print("[1] 对手机做 SDP 查询（证明查询代码本身没问题）")
-    let phoneCount = queryDevice("手机", address: addr)
-
-    print("")
-    print("[2] 发布前，查本机")
+    print("[1] 发布前，查本机")
     let before = selfQuery("发布前")
 
     print("")
-    print("[3] 两种数字写法各发一份，各自读回并用 remove() 配对")
+    print("[2] 两种数字写法各发一份，各自读回并用 remove() 配对")
     var results: [(String, String)] = []      // (标签, 结论)
     for (style, label) in [(NumStyle.dictSize, "完整字典"), (NumStyle.dictPlain, "简写字典")] {
         let dict = recordDict(style: style, name: "\(MNS_NAME) \(label)", channel: 10, includeProfile: true)
@@ -312,8 +316,12 @@ func caseTruth() {
     }
 
     print("")
+    print("[3] 对手机做 SDP 查询（对照组，证明查询代码本身没问题）")
+    let phoneCount = queryDevice("手机", address: addr)
+
+    print("")
     print("[4] 小结")
-    print("  手机查询 \(phoneCount) 条；本机查询：发布前 \(before) 条")
+    print("  本机查询：发布前 \(before) 条；手机查询 \(phoneCount) 条")
     for (label, verdict) in results {
         print("  \(label)：\(verdict)")
     }
