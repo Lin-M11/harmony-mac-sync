@@ -14,6 +14,7 @@ cd "$(dirname "$0")"
 TARGETS=(
   "HarmonySync|harmony_sync.swift|-lsqlite3"
   "SDPFinalProbe|sdp_final_probe.swift|"
+  "SDPGroundProbe|sdp_ground_probe.swift|"
   "SDPStateProbe|sdp_state_probe.swift|"
   "SDPPublishProbe|sdp_publish_probe.swift|"
   "PhoneCapProbe|phone_cap_probe.swift|"

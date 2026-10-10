@@ -400,30 +400,56 @@ let BROWSE_GROUP_UUID16: UInt16 = 0x1002
 let MNS_RFCOMM_CHANNEL: UInt8 = 10      // 期望值，被占用时系统会另分配
 let EVENT_REPORT_TYPE = "x-bt/map-event-report"
 
-func sdpUInt16(_ value: UInt16) -> [String: Any] {
-    ["DataElementType": 1, "DataElementValue": Data([UInt8(value >> 8), UInt8(value & 0xFF)])]
+// 数字元素的写法。SDP 规范允许几种表达方式，本机 SDP 服务器认哪一种要靠试。
+enum NumStyle: String {
+    case dictSize  = "完整字典"
+    case dictPlain = "简写字典"
+    case typed     = "显式构造"
+    case number    = "裸 NSNumber"
 }
 
-func sdpUInt8(_ value: UInt8) -> [String: Any] {
-    ["DataElementType": 1, "DataElementValue": Data([value])]
+func bytesToUInt(_ b: [UInt8]) -> UInt32 {
+    b.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
 }
 
-func sdpUInt32(_ value: UInt32) -> [String: Any] {
-    ["DataElementType": 1, "DataElementValue": Data([
-        UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
-        UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
-    ])]
+func sdpSizeDescriptor(for count: Int) -> UInt8 {
+    switch count {
+    case 1: return 0
+    case 2: return 1
+    case 4: return 2
+    case 8: return 3
+    case 16: return 4
+    default: return 0
+    }
 }
 
-// 协议栈的写法。本机 SDP 服务器对「数组套数组」的接受程度不确定，所以几种都备着，
-// 能读回通道号的那份才算数。
+func sdpNumber(_ bytes: [UInt8], style: NumStyle) -> Any {
+    switch style {
+    case .dictSize:
+        return ["DataElementType": 1, "DataElementSize": bytes.count,
+                "DataElementValue": Data(bytes)] as [String: Any]
+    case .dictPlain:
+        return ["DataElementType": 1, "DataElementValue": Data(bytes)] as [String: Any]
+    case .typed:
+        if let e = IOBluetoothSDPDataElement.withType(
+            1, sizeDescriptor: sdpSizeDescriptor(for: bytes.count),
+            size: UInt32(bytes.count), value: NSNumber(value: bytesToUInt(bytes))) {
+            return e
+        }
+        return Data(bytes)
+    case .number:
+        return NSNumber(value: bytesToUInt(bytes))
+    }
+}
+
+// 协议栈的写法。本机 SDP 服务器对「数组套数组」的接受程度不确定，两种都备着。
 enum PdlStyle: String {
     case nestedDict = "嵌套数组"
-    case elementTree = "数据元素树"
     case uuidOnly = "仅 UUID"
 }
 
-func mnsServiceDict(channel: UInt8, style: PdlStyle, includeProfile: Bool = true) -> [String: Any] {
+func mnsServiceDict(channel: UInt8, num: NumStyle, style: PdlStyle,
+                    includeProfile: Bool = true, name: String = "MAP MNS") -> [String: Any] {
     let l2capU = IOBluetoothSDPUUID(uuid16: L2CAP_UUID16)!
     let rfcommU = IOBluetoothSDPUUID(uuid16: RFCOMM_UUID16)!
     let obexU = IOBluetoothSDPUUID(uuid16: OBEX_UUID16)!
@@ -431,43 +457,28 @@ func mnsServiceDict(channel: UInt8, style: PdlStyle, includeProfile: Bool = true
     var dict: [String: Any] = [
         "0001 ServiceClassIDList": [IOBluetoothSDPUUID(uuid16: MNS_UUID16)!],
         "0005 BrowseGroupList": [IOBluetoothSDPUUID(uuid16: BROWSE_GROUP_UUID16)!],
-        "0100 ServiceName": "MAP MNS",
+        "0100 ServiceName": name,
         // 低两位：Notification Registration + Notification
-        "0317 SupportedFeatures": sdpUInt32(0x00000003),
+        "0317 SupportedFeatures": sdpNumber([0x00, 0x00, 0x00, 0x03], style: num),
     ]
 
     switch style {
     case .nestedDict:
         dict["0004 ProtocolDescriptorList"] = [
-            [l2capU, sdpUInt16(0x0003)],
-            [rfcommU, sdpUInt8(channel)],
+            [l2capU, sdpNumber([0x00, 0x03], style: num)],
+            [rfcommU, sdpNumber([channel], style: num)],
             [obexU],
-        ]
+        ] as [Any]
     case .uuidOnly:
-        dict["0004 ProtocolDescriptorList"] = [[l2capU], [rfcommU], [obexU]]
-    case .elementTree:
-        if let tree = elementTreePdl(channel: channel) {
-            dict["0004 ProtocolDescriptorList"] = tree
-        }
+        dict["0004 ProtocolDescriptorList"] = [[l2capU], [rfcommU], [obexU]] as [Any]
     }
 
     if includeProfile {
         dict["0009 BluetoothProfileDescriptorList"] = [
-            [IOBluetoothSDPUUID(uuid16: MAP_PROFILE_UUID16)!, sdpUInt16(0x0102)]
-        ]
+            [IOBluetoothSDPUUID(uuid16: MAP_PROFILE_UUID16)!, sdpNumber([0x01, 0x02], style: num)]
+        ] as [Any]
     }
     return dict
-}
-
-// 协议栈整棵树都用数据元素自己搭
-func elementTreePdl(channel: UInt8) -> IOBluetoothSDPDataElement? {
-    func seq(_ items: [Any]) -> IOBluetoothSDPDataElement? {
-        IOBluetoothSDPDataElement.withElementValue(items as NSObject)
-    }
-    guard let l2capEntry = seq([IOBluetoothSDPUUID(uuid16: L2CAP_UUID16)!, Data([0x00, 0x03])]),
-          let rfcommEntry = seq([IOBluetoothSDPUUID(uuid16: RFCOMM_UUID16)!, Data([channel])]),
-          let obexEntry = seq([IOBluetoothSDPUUID(uuid16: OBEX_UUID16)!]) else { return nil }
-    return seq([l2capEntry, rfcommEntry, obexEntry])
 }
 
 // 读回记录里实际存在的属性 ID，用来判断发布有没有丢东西
@@ -610,21 +621,25 @@ final class MnsServer: NSObject {
     var channelID: BluetoothRFCOMMChannelID = 0
     var ignoreChannelID: BluetoothRFCOMMChannelID = 0
     var handledIDs: Set<BluetoothRFCOMMChannelID> = []
+    var incomingCount = 0
 
-    // 候选写法：从最贴近规范的一份开始，读回通道号即停
-    let CANDIDATES: [(PdlStyle, Bool)] = [
-        (.nestedDict, true),
-        (.elementTree, true),
-        (.uuidOnly, false),
-        (.nestedDict, false),
+    // 候选写法：数字元素的表达方式 × 协议栈的表达方式。
+    // 从最贴近规范的一份开始，读回通道号即停。
+    let CANDIDATES: [(NumStyle, PdlStyle, Bool)] = [
+        (.dictSize, .nestedDict, true),
+        (.typed, .nestedDict, true),
+        (.number, .nestedDict, true),
+        (.dictPlain, .nestedDict, true),
+        (.dictSize, .nestedDict, false),
     ]
 
     func start(onEvent: @escaping (String) -> Void) {
         self.onEvent = onEvent
 
         for (index, cand) in CANDIDATES.enumerated() {
-            let label = "写法 \(index + 1)（\(cand.0.rawValue)\(cand.1 ? " + Profile" : "")）"
-            let dict = mnsServiceDict(channel: MNS_RFCOMM_CHANNEL, style: cand.0, includeProfile: cand.1)
+            let label = "写法 \(index + 1)（\(cand.0.rawValue) + \(cand.1.rawValue)\(cand.2 ? " + Profile" : "")）"
+            let dict = mnsServiceDict(channel: MNS_RFCOMM_CHANNEL, num: cand.0,
+                                      style: cand.1, includeProfile: cand.2)
             guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) else {
                 emit("  [MNS] \(label) 发布返回空")
                 continue
@@ -649,7 +664,7 @@ final class MnsServer: NSObject {
         }
 
         guard record != nil else {
-            emit("  [MNS] ✗ 四种写法都没能在本机 SDP 服务器建出记录")
+            emit("  [MNS] ✗ 本机 SDP 服务器没接受这 \(CANDIDATES.count) 种候选写法")
             return
         }
 
@@ -682,6 +697,7 @@ final class MnsServer: NSObject {
         guard id != ignoreChannelID else { return }
         guard !handledIDs.contains(id) else { return }
         handledIDs.insert(id)
+        incomingCount += 1
         emit("")
         emit("  [MNS] 有设备连进来了（通道 \(id)）")
         let mc = MnsChannel(channel: ch, onEvent: onEvent)
@@ -1073,6 +1089,19 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         sendListing()
     }
 
+    // 心跳。轮询是静默的，卡住的时候光看日志分不出「在等」还是「已经不动了」。
+    func heartbeat() {
+        let link: String
+        if channel == nil { link = "未开通道" }
+        else if awaiting { link = "请求在途" }
+        else { link = "通道已开" }
+        let sub: String
+        if !mnsEnabled { sub = "未启用" }
+        else if notifSupported == nil { sub = "未试" }
+        else { sub = notifSupported! ? "已接受" : "被拒" }
+        emit("  · 心跳：\(link)，阶段 \(phase)，已轮询 \(pollCount) 次，事件订阅 \(sub)")
+    }
+
     func finish() {
         if let ch = channel { _ = ch.close() }
         phase = .idle
@@ -1164,6 +1193,52 @@ if args.contains("--mns-selftest") {
     exit(0)
 }
 
+// 本地自检：把几种候选字典按 plist 打出来，不碰蓝牙
+if args.contains("--dump-sdp") {
+    let candidates: [(NumStyle, PdlStyle, Bool)] = [
+        (.dictSize, .nestedDict, true),
+        (.typed, .nestedDict, true),
+        (.number, .nestedDict, true),
+        (.dictPlain, .nestedDict, true),
+        (.dictSize, .nestedDict, false),
+    ]
+    for (i, c) in candidates.enumerated() {
+        print("===== 候选 \(i + 1)：\(c.0.rawValue) + \(c.1.rawValue)\(c.2 ? " + Profile" : "") =====")
+        let dict = mnsServiceDict(channel: MNS_RFCOMM_CHANNEL, num: c.0, style: c.1, includeProfile: c.2)
+        if let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0),
+           let text = String(data: data, encoding: .utf8) {
+            print(text)
+        } else {
+            print("（打不出来）")
+        }
+    }
+    exit(0)
+}
+
+// 只跑 MNS 服务端：发布 SDP 记录并守着，看手机能不能主动连过来。不碰 MAP 会话。
+if let i = args.firstIndex(of: "--mns-hold") {
+    let secs = i + 1 < args.count ? (Double(args[i + 1]) ?? 150) : 150
+    print("只跑 MNS 服务端，保持 \(Int(secs)) 秒")
+    print("")
+
+    let mns = MnsServer()
+    mns.start { detail in
+        print("  [MNS] 事件：\(detail)")
+    }
+    print("")
+
+    var left = secs
+    let timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
+        left -= 15
+        print("  · 还剩 \(Int(max(left, 0))) 秒，入站连接 \(mns.incomingCount) 次")
+    }
+    RunLoop.current.add(timer, forMode: .default)
+    RunLoop.current.run(until: Date().addingTimeInterval(secs))
+    print("")
+    print("结束：入站连接共 \(mns.incomingCount) 次")
+    exit(0)
+}
+
 let once = args.contains("--once")
 let reset = args.contains("--reset")
 if args.contains("--no-mns") { mnsEnabled = false }
@@ -1218,6 +1293,14 @@ if mnsEnabled {
 }
 
 sync.start()
+
+// 心跳：每 10 秒报一次状态，卡住的时候也能从日志里看出来
+if !once {
+    let timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
+        sync.heartbeat()
+    }
+    RunLoop.current.add(timer, forMode: .default)
+}
 
 CFRunLoopRun()
 

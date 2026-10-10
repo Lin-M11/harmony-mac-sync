@@ -578,7 +578,24 @@ SDP 记录的属性：
 | ServiceName | `MAP MNS` |
 | SupportedFeatures | `0x00000003`（Notification Registration + Notification） |
 
-发布是异步的：发出后先跑一两秒 RunLoop 再读回，**以「能不能读回 RFCOMM 通道号」作为记录是否可用的判据**。协议栈的写法准备了三种（嵌套数组 / 数据元素树 / 仅 UUID），再乘上「带不带 Profile 描述」共四种组合，逐个发布、读回、比对，取第一份能读回通道号的；都不行就保留最后一份挂在本机 SDP 服务器上。每次读回的属性 ID 与通道号都打进日志，便于事后核对。
+**判据（2026-10-10 实测）**
+
+以「对本机地址做一次真正的 SDP 查询」为准——这才是对端（手机）的视角：`IOBluetoothDevice(addressString: 本机地址)` 加 `performSDPQuery`，逐条列出名称、句柄、属性 ID、`0x0004` 是否存在、RFCOMM 通道号。
+
+返回对象的属性读数只当参考：实测同一台机器连着发布五次，换服务名、换协议栈写法，读回来的服务名和属性列表**完全一样**（都是第一次那份），它反映不出对端能看到什么。
+
+发布侧另外配一层候选轮换：
+
+1. **数字元素的四种写法**：完整字典（`DataElementType` + `DataElementSize` + `DataElementValue` 三项齐全）、显式构造（`withType:sizeDescriptor:size:value:`）、裸 `NSNumber`（规范说这种按 32 位无符号整数处理）、简写字典（只有类型和值，长度即宽度）。
+2. **协议栈的表达方式**：嵌套数组 / 仅 UUID；`0x0009` Profile 描述可带可不带。
+
+候选共五份：四种数字写法配嵌套数组，再加一份「完整字典 + 嵌套数组 + 不带 Profile」。逐个发布、读回，取第一份能读回通道号的。
+
+**用 `Data` 表达数字时必须显式写 `DataElementType`。** 框架会把裸 `Data` 推断成 UUID 类型，1 字节的 `Data`（比如 RFCOMM 通道号）不是合法的 UUID 宽度，框架会打印 `size for type 3 (UUID) invalid: 1 bytes`，整条记录发布返回空。
+
+**心跳（2026-10-10 实测）**：客户端每 10 秒打一行状态。轮询本身是静默的，日志里分不出是在等还是已经不动了——那次跑动里四种候选写法发布全部返回空之后，90 秒里一行输出都没有。
+
+发布是异步的：发出后先跑一两秒 RunLoop 再读回。
 
 入站监听注册两层：一层按读回的通道号、一层不限通道（`register(forChannelOpenNotifications:selector:)`）。两层会对同一条通道各回调一次，按通道号去重，并排除自己连手机 MAS 的那条通道（`ignoreChannelID`）。
 
@@ -641,12 +658,39 @@ $ HarmonySync --mns-selftest
 
 **要观察的点**
 
-1. 订阅返回码是否变成 `0xA0`
+1. 本机 SDP 查询里，MNS 那条记录的 `0x0004` 是否出现、RFCOMM 通道号是多少
 2. 手机是否真的发起这条回连——方向与平时的连接相反
-3. 事件延迟：订阅生效后事件会立刻触发一次拉取，不等下一个周期
-4. 发布后读回的属性里 `0x0004` 是否出现、通道号是否读得到
+3. 订阅返回码是否变成 `0xA0`
+4. 事件延迟：订阅生效后事件会立刻触发一次拉取，不等下一个周期
 
 定时轮询继续保留：事件丢失时它是兜底，订阅不可用时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
+
+**心跳（2026-10-10）**
+
+客户端每 10 秒打一行状态：通道是否已开、当前处在哪个阶段、已轮询多少次、事件订阅是已接受还是被拒。轮询本身是静默的，卡住的时候光看日志分不出「在等」还是「已经不动了」。
+
+**只跑 MNS 的入口**
+
+`--mns-hold <秒>` 发布 SDP 记录并守着，不建立 MAP 会话。用来单独验证「手机能不能主动连过来」，把变量从 MAP 那边摘干净。
+
+#### 7.4.1 地面真相探针（sdp_ground_probe.swift）
+
+专门回答「本机 SDP 服务器实际存了什么、手机能查到什么」。用例各自独立进程，避免互相干扰：
+
+| 用例 | 做什么 |
+|---|---|
+| `audit` | 只查不发。对本机地址做 SDP 查询，列出全部记录 |
+| `attr-dict-size` | 数字元素用完整字典（含 `DataElementSize`） |
+| `attr-typed` | 数字元素用 `withType:sizeDescriptor:size:value:` 显式构造 |
+| `attr-number` | 数字元素用裸 `NSNumber` |
+| `attr-dict-plain` | 数字元素用简写字典（对照） |
+| `hold [秒]` | 三种写法各发一条记录、各占一个通道，一起挂着等手机回连；同时注册入站监听，有连接进来就打印通道号 |
+
+`hold` 里三条记录用不同通道号，手机连过来时打出的通道号能反推出它选了哪一份记录。
+
+配套脚本 `run_ground_check.command`：审计 → 四种读数写法 → 守候 150 秒。
+
+> 建议先做一步：系统设置 → 蓝牙，关掉再打开。临时记录会随进程退出清掉，但服务器本身要是卡住了，关一下蓝牙最省事。
 
 ### 7.5 后续版本 B2：HFP 信令
 
@@ -691,7 +735,8 @@ $ HarmonySync --mns-selftest
 | `phone_cap_probe.swift` | 展开手机 MAS 记录全部属性，读 `SupportedFeatures` | 已跑通，见 §7.1.1 |
 | `sdp_publish_probe.swift` | Mac 侧 SDP 记录发布，十二种字典写法各起一个进程 | 已跑通 |
 | `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
-| `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 待跑，见 §7.4 |
+| `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 已跑通，见 §7.4 |
+| `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：本机 SDP 查询 + 数字元素四种写法 + 守候回连 | 待跑，见 §7.4.1 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
@@ -700,7 +745,7 @@ $ HarmonySync --mns-selftest
 
 **构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
@@ -714,7 +759,9 @@ $ HarmonySync --mns-selftest
 | `--parse <文件>` | 不连蓝牙，直接拿一份保存的列表验解析 |
 | `--event <文件>` | 不连蓝牙，拿一份事件报告正文验解析 |
 | `--dump-notif` | 不连蓝牙，打印五种订阅写法的报文字节 |
+| `--dump-sdp` | 不连蓝牙，把五种候选 SDP 字典按 plist 打出来 |
 | `--mns-selftest` | 不连蓝牙，用合成报文走一遍 MNS 入站处理（连接 / 事件报告 / 断开） |
+| `--mns-hold <秒>` | 只跑 MNS 服务端：发布 SDP 记录并守着，不建立 MAP 会话 |
 
 **本地数据**：`~/Library/Application Support/HarmonySync/messages.db`
 
