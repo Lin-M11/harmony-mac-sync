@@ -17,6 +17,7 @@ TARGETS=(
   "SDPGroundProbe|sdp_ground_probe.swift|"
   "SDPStateProbe|sdp_state_probe.swift|"
   "SDPPublishProbe|sdp_publish_probe.swift|"
+  "SDPPubDiag|sdp_pub_diag.swift|"
   "PhoneCapProbe|phone_cap_probe.swift|"
   "MAPClient|map_client.swift|"
   "OBEXBodyProbe|obex_bodyprobe.swift|"
