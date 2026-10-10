@@ -3,10 +3,11 @@
 #
 # 不需要手机。全程只在本机做，不对手机发起查询。
 #
-#   第零段：重启蓝牙守护进程，把之前几轮可能残留的状态清掉
+#   第零段：重启蓝牙守护进程，等 12 秒（守护进程起来后要过一会儿才收得住发布请求）
 #   第一段：进程身份（Bundle ID、用途说明、C 层符号是否齐全）与字典原文
-#   第二段：内容隔离。每个用例前各重启一次蓝牙守护进程，
-#           让每个用例都成为「重启后的第一个服务」——这样看到的差异只可能来自字典内容。
+#   第二段：逐项判定。每个用例前各重启一次并等 12 秒，
+#           让每个用例都成为「守护进程就绪后的第一个服务」——看到的差异只可能来自字典内容。
+#           顺序：MNS 当前写法 → 串口对照 → MNS 换动态 PSM → MNS 去掉 L2CAP
 #   第三段：连续发布。同一份字典在同一个进程里连发四次，看第几次开始变。
 #   第四段：抓蓝牙守护进程与探针自身的日志。服务器的拒绝理由都在这里。
 #
@@ -16,18 +17,18 @@ cd "$(dirname "$0")" || exit 1
 
 DIAG_BIN="./SDPPubDiag.app/Contents/MacOS/SDPPubDiag"
 OUT=/tmp/sdp_pub_diag.txt
+SETTLE=12
 
-# 内容隔离：每个用例前都重启
+# 逐项判定：每个用例前都重启
 ISOLATED_CASES=(
   mns-ours
   spp-num
-  spp-obex
-  mns-nobex
+  mns-psm1001
+  mns-nol2cap
 )
 
 # 连续发布：不重启
 REPEAT_CASES=(
-  repeat-spp
   repeat-mns
 )
 
@@ -37,8 +38,8 @@ REPEAT_CASES=(
   echo "########################################"
   echo ""
   sudo killall bluetoothd
-  sleep 3
-  echo "[$(date '+%H:%M:%S')] 已重启，等 3 秒"
+  sleep $SETTLE
+  echo "[$(date '+%H:%M:%S')] 已重启，等 $SETTLE 秒"
   echo ""
   echo ""
 
@@ -62,7 +63,7 @@ REPEAT_CASES=(
   echo ""
   echo ""
   echo "########################################"
-  echo "# 第二段  内容隔离（每个用例前各重启一次）"
+  echo "# 第二段  逐项判定（每个用例前各重启一次，各等 $SETTLE 秒）"
   echo "########################################"
   echo ""
 
@@ -70,7 +71,7 @@ REPEAT_CASES=(
     echo "========================================"
     echo "[$(date '+%H:%M:%S')] 重启蓝牙守护进程，为用例 $c 清场"
     sudo killall bluetoothd
-    sleep 3
+    sleep $SETTLE
     echo "[$(date '+%H:%M:%S')] 用例 $c"
     "$DIAG_BIN" "$c"
     rc=$?

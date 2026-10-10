@@ -132,6 +132,34 @@ func mnsNoObexDict() -> [String: Any] {
     ]
 }
 
+/// MAP MNS，协议列表里的 L2CAP 换成动态 PSM 0x1001
+func mnsPsm1001Dict() -> [String: Any] {
+    [
+        "0001 ServiceClassIDList": [mnsU],
+        "0004 ProtocolDescriptorList": [
+            [l2capU, numData([0x10, 0x01])],
+            [rfcommU, numData([CH])],
+            [obexU],
+        ],
+        "0005 BrowseGroupList": [browseU],
+        "0009 BluetoothProfileDescriptorList": [[mapProfU, numData([0x01, 0x02])]],
+        "0100 ServiceName": "MAP MNS",
+    ]
+}
+
+/// MAP MNS，协议列表去掉 L2CAP，只留 RFCOMM 与 OBEX
+func mnsNoL2capDict() -> [String: Any] {
+    [
+        "0001 ServiceClassIDList": [mnsU],
+        "0004 ProtocolDescriptorList": [
+            [rfcommU, numData([CH])],
+            [obexU],
+        ],
+        "0005 BrowseGroupList": [browseU],
+        "0100 ServiceName": "MAP MNS",
+    ]
+}
+
 func report(_ tag: String, _ rec: IOBluetoothSDPServiceRecord) {
     var handle: BluetoothSDPServiceRecordHandle = 0
     let hrc = rec.getHandle(&handle)
@@ -260,6 +288,8 @@ func caseMnsL2cap(){ print("MAP MNS，0004 只留 L2CAP"); publish("MNS·L2CAP",
 func caseMnsPersist() { print("MAP MNS，带本地属性 Persistent"); publish("MNS·留存", mnsPersistDict()) }
 func caseSppObex() { print("串口服务，协议列表多一层 OBEX"); publish("串口·加OBEX", sppObexDict()) }
 func caseMnsNoObex() { print("MAP MNS，协议列表不带 OBEX"); publish("MNS·无OBEX", mnsNoObexDict()) }
+func caseMnsPsm1001() { print("MAP MNS，L2CAP 换成动态 PSM 0x1001"); publish("MNS·PSM1001", mnsPsm1001Dict()) }
+func caseMnsNoL2cap() { print("MAP MNS，协议列表去掉 L2CAP"); publish("MNS·无L2CAP", mnsNoL2capDict()) }
 func caseRepeatSpp() { print("同一份串口字典连发 4 次"); repeatPublish("串口·连发", sppDataDict(), times: 4) }
 func caseRepeatMns() { print("同一份 MAP MNS 字典连发 4 次"); repeatPublish("MNS·连发", mnsDict(), times: 4) }
 func caseCapiSpp() { print("C 层：串口服务"); capiPublish("C·串口", sppDataDict()) }
@@ -276,6 +306,8 @@ let ALL: [(String, () -> Void)] = [
     ("mns-min", caseMnsMin),
     ("mns-l2cap", caseMnsL2cap),
     ("mns-persist", caseMnsPersist),
+    ("mns-psm1001", caseMnsPsm1001),
+    ("mns-nol2cap", caseMnsNoL2cap),
     ("repeat-spp", caseRepeatSpp),
     ("repeat-mns", caseRepeatMns),
     ("capi-spp", caseCapiSpp),

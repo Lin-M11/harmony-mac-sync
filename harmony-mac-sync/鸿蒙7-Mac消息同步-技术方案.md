@@ -753,6 +753,8 @@ MAS 通道上的订阅这次回 `0xA0`：
 | `mns-min` | MAP MNS，只留 `0001` 与 `0004` |
 | `mns-l2cap` | MAP MNS，`0004` 只留 L2CAP |
 | `mns-persist` | MAP MNS，带 `LocalAttributes` 的 `Persistent` |
+| `mns-psm1001` | MAP MNS，协议列表里的 L2CAP 换成动态 PSM `0x1001` |
+| `mns-nol2cap` | MAP MNS，协议列表去掉 L2CAP，只留 RFCOMM 与 OBEX |
 | `repeat-spp` | 同一份串口字典在同一进程里连发 4 次 |
 | `repeat-mns` | 同一份 MAP MNS 字典在同一进程里连发 4 次 |
 | `capi-spp` | C 层 `IOBluetoothAddServiceDict` 发串口服务 |
@@ -764,7 +766,9 @@ MAS 通道上的订阅这次回 `0xA0`：
 
 `capi-*` 走 C 层 `IOBluetoothAddServiceDict`（`dlsym` 取符号），与 Objective-C 层的结果对照——两层读数一致时，可以排除某一层特有的问题。
 
-脚本 `run_pub_diag.command` 分四段：重启蓝牙守护进程 → 进程身份与字典原文 → **内容隔离**（每个用例前各重启一次，让每个用例都成为「重启后的第一个服务」）→ **连续发布**（同一份字典在同一进程里连发四次）→ 抓蓝牙守护进程与探针自身的日志。
+脚本 `run_pub_diag.command` 分四段：重启蓝牙守护进程（等 12 秒）→ 进程身份与字典原文 → **逐项判定**（每个用例前各重启一次并等 12 秒，让每个用例都成为「守护进程就绪后的第一个服务」）→ **连续发布**（同一份字典在同一进程里连发四次）→ 抓蓝牙守护进程与探针自身的日志。
+
+等待时间给 12 秒是有原因的：给 3 秒时四个用例全部失败，连已知能成的串口服务也一样；给到 10 秒以上才稳定。守护进程起来之后要再过几秒才收得住发布请求。
 
 **发布判定实测（2026-10-10 14:00）**
 
@@ -801,7 +805,41 @@ Failed to register psm with result 0x709
 2. **停在后一步**：按协议列表里的 L2CAP 项去注册 PSM 3（RFCOMM 的公共 PSM），这一步失败。
 3. 句柄的构成是 `0x4F49` 加上类 UUID：串口拿到 `0x4F491101`、MNS 拿到 `0x4F491133`。同一个类 UUID 反复发布，拿回的是同一个句柄。
 
-据此把下一轮要问的问题收敛成一个：**MNS 作为「重启后的第一个服务」发布时，能不能成**。能成，说明是 PSM 被前一个服务占住；不能成，说明是这份记录的内容被拒。`run_pub_diag.command` 第二段的「每个用例前各重启一次」就是为这个问题设计的，同时用「串口 + OBEX」与「MNS 不带 OBEX」两个用例把类 UUID 和协议列表这两项变量分开。
+据此把下一轮要问的问题收敛成一个：**MNS 作为「重启后的第一个服务」发布时，能不能成**。能成，说明是 PSM 被前一个服务占住；不能成，说明是这份记录的内容被拒。
+
+**发布判定实测（2026-10-10 14:57）**
+
+这一轮加了一组对照：同一份串口字典与同一份 MNS 字典，在**同一个进程里各连发四次**。
+
+| 用例 | 第 1 次 | 第 2 次 | 第 3 次 | 第 4 次 |
+|---|---|---|---|---|
+| `repeat-spp` 串口 `0x1101` | ✓ 句柄 `0x4F491101` 通道 1 | ✓ 同上 | ✓ 同上 | ✓ 同上 |
+| `repeat-mns` MAP MNS `0x1133` | ✗ 返回空 | ✗ 返回空 | ✗ 返回空 | ✗ 返回空 |
+
+同一进程、同一时刻、同一套写法，**串口四次全成、MNS 四次全空**。四次的服务器日志逐字一致：
+
+```
+addServiceDataToLocalSDP: Number of attributes: 5, 0x5
+addServiceDataToLocalSDP: SRH 0x4F491133
+addServiceDataToLocalSDP: publishing PSM 3
+Registering L2CAP Channel with PSM 0x0003 for session "…classic-27415-53"
+Failed to register L2CAP Channel with PSM 0x0003 … with result 402
+Classic Channel published callback PSM : 3 result : 1801
+Failed to register psm with result 0x709
+```
+
+**「重启后等 3 秒」不够。** 这一轮第二段把「每个用例前各重启一次」的等待设成了 3 秒，四个用例**全部失败**——包括已知能成的串口服务。同一轮第三段不再重启、距上次重启已过 10 秒，串口四次全成。也就是说守护进程起来之后要再过几秒才收得住发布请求，等待时间不够时读数会被污染。脚本已把等待改成 12 秒。
+
+**框架那句 `Added service with handle 4F491133` 不是成功标志。** 四次失败里每次都照打这一行——它只表示框架把请求发出去了，服务器那一侧的注册结果要看 `Failed to register psm with result …`。
+
+据此这一轮把变量继续收窄，新增两个用例：
+
+| 用例 | 变的是什么 | 要回答的问题 |
+|---|---|---|
+| `mns-psm1001` | 协议列表里的 L2CAP 换成动态 PSM `0x1001` | PSM 3 被占住是不是唯一原因 |
+| `mns-nol2cap` | 协议列表去掉 L2CAP，只留 RFCOMM 与 OBEX | 不碰 PSM 时这份记录能不能进库 |
+
+`mns-psm1001` 若能成，说明卡点确实是 PSM 3 那一格；`mns-nol2cap` 若能成，说明记录本身可以被接受。两个都仍返回空，就说明是类 UUID `0x1133` 这一层被拒。
 
 发布是异步的：发出后先跑一两秒 RunLoop 再读回。
 
@@ -949,7 +987,7 @@ $ HarmonySync --mns-selftest
 | `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
 | `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 已跑通，见 §7.4 |
 | `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：状态 / 本机与手机查询对照 / 单进程全流程对照 / 最简与对照 / 数字元素写法 / 守候回连 | 已跑通，见 §7.4.1 |
-| `sdp_pub_diag.swift` | 发布判定：进程身份 / 字典原文 / 串口服务对照 / MAP MNS 各种写法 / 连续发布 / C 层接口，共 14 个用例 | 已跑通，见 §7.4 |
+| `sdp_pub_diag.swift` | 发布判定：进程身份 / 字典原文 / 串口服务对照 / MAP MNS 各种写法 / 连续发布 / C 层接口，共 16 个用例 | 已跑通，见 §7.4 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
@@ -958,7 +996,7 @@ $ HarmonySync --mns-selftest
 
 **构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：身份与字典原文 → 内容隔离，每个用例前各重启一次 → 连续发布 → 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：身份与字典原文 → 逐项判定，每个用例前各重启一次并等 12 秒 → 连续发布 → 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
