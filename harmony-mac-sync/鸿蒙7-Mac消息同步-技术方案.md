@@ -595,6 +595,28 @@ SDP 记录的属性：
 
 **心跳（2026-10-10 实测）**：客户端每 10 秒打一行状态。轮询本身是静默的，日志里分不出是在等还是已经不动了——那次跑动里四种候选写法发布全部返回空之后，90 秒里一行输出都没有。
 
+**发布侧的状态记录（2026-10-10 09:40 实测）**
+
+本机 SDP 查询这条路本身是通的（本机地址能读到，查询正常返回），那次查询结果是 0 条——因为同一轮里所有发布都没成。四种数字写法加守候里的三份，发布**全部返回空**。
+
+关键是：其中「简写字典」那份与 09:22 拿到对象的那次**字节相同**。同一份字典、新起的进程、不同的结果，说明变的是本机 SDP 服务器的状态，不是字典内容。
+
+时间线上，09:22:45 之前各用例都能拿到对象，09:22:49 起全部返回空。这中间只跑过一个用例：用 `withElementValue` 装 `Data` 的那个，框架当场报了 `size for type 3 (UUID) invalid: 1 bytes`。所以下一步是**重启蓝牙守护进程**把服务器状态清干净，再按「最简 → 对照 → 完整」的顺序验一遍。
+
+探针为此补了三个用例：
+
+| 用例 | 回答什么 |
+|---|---|
+| `state` | 控制器电源、本机地址、当前连接的设备——先排除「控制器没开」这类外部因素 |
+| `minimal` | 只放类 UUID + 服务名，不带协议栈。它成了就说明服务器本身收，问题在协议栈那一层的表达 |
+| `control-128` | 换一个从未用过的 128 位类 UUID，同样不带协议栈。它成了就说明服务器按类 UUID 拒收 |
+
+配套脚本 `run_sdp_reset_check.command`：重启蓝牙守护进程 → `state` / `minimal` / `control-128` / `attr-dict-size` / `attr-typed` → 守候 120 秒。
+
+**定时轮询继续保留**：事件丢失时它是兜底，订阅不可用时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
+
+把延迟压到秒级不一定要等事件订阅落地——轮询周期本身就可以压：`--interval 2 --limit 1` 是每 2 秒要一次最新 1 条，请求很小，延迟就是一个周期。配套脚本 `run_fast_sync.command` 用这套参数跑 4 分钟。两种方式可以并存：订阅生效时轮询当兜底，订阅没落地时轮询就是主路径。
+
 发布是异步的：发出后先跑一两秒 RunLoop 再读回。
 
 入站监听注册两层：一层按读回的通道号、一层不限通道（`register(forChannelOpenNotifications:selector:)`）。两层会对同一条通道各回调一次，按通道号去重，并排除自己连手机 MAS 的那条通道（`ignoreChannelID`）。
@@ -663,12 +685,6 @@ $ HarmonySync --mns-selftest
 3. 订阅返回码是否变成 `0xA0`
 4. 事件延迟：订阅生效后事件会立刻触发一次拉取，不等下一个周期
 
-定时轮询继续保留：事件丢失时它是兜底，订阅不可用时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
-
-**心跳（2026-10-10）**
-
-客户端每 10 秒打一行状态：通道是否已开、当前处在哪个阶段、已轮询多少次、事件订阅是已接受还是被拒。轮询本身是静默的，卡住的时候光看日志分不出「在等」还是「已经不动了」。
-
 **只跑 MNS 的入口**
 
 `--mns-hold <秒>` 发布 SDP 记录并守着，不建立 MAP 会话。用来单独验证「手机能不能主动连过来」，把变量从 MAP 那边摘干净。
@@ -679,18 +695,21 @@ $ HarmonySync --mns-selftest
 
 | 用例 | 做什么 |
 |---|---|
+| `state` | 控制器电源、本机地址、当前连接的设备 |
 | `audit` | 只查不发。对本机地址做 SDP 查询，列出全部记录 |
+| `minimal` | 最简记录：只有类 UUID + 服务名，不带协议栈 |
+| `control-128` | 对照：换一个从未用过的 128 位类 UUID，同样不带协议栈 |
 | `attr-dict-size` | 数字元素用完整字典（含 `DataElementSize`） |
 | `attr-typed` | 数字元素用 `withType:sizeDescriptor:size:value:` 显式构造 |
 | `attr-number` | 数字元素用裸 `NSNumber` |
 | `attr-dict-plain` | 数字元素用简写字典（对照） |
 | `hold [秒]` | 三种写法各发一条记录、各占一个通道，一起挂着等手机回连；同时注册入站监听，有连接进来就打印通道号 |
 
+`minimal` 与 `control-128` 是一对：前者排除「服务器整体不收」，后者排除「服务器按类 UUID 拒收」。
+
 `hold` 里三条记录用不同通道号，手机连过来时打出的通道号能反推出它选了哪一份记录。
 
-配套脚本 `run_ground_check.command`：审计 → 四种读数写法 → 守候 150 秒。
-
-> 建议先做一步：系统设置 → 蓝牙，关掉再打开。临时记录会随进程退出清掉，但服务器本身要是卡住了，关一下蓝牙最省事。
+两个配套脚本：`run_ground_check.command`（审计 → 四种读数写法 → 守候 150 秒）、`run_sdp_reset_check.command`（重启蓝牙守护进程 → 状态 / 最简 / 对照 / 完整 → 守候 120 秒）。
 
 ### 7.5 后续版本 B2：HFP 信令
 
@@ -721,7 +740,7 @@ $ HarmonySync --mns-selftest
 - [x] 短信落库，已见 handle 持久化，重启不重复通知
 - [x] 手机 MAS 记录读通，`SupportedFeatures` 声明支持「通知注册」（§7.1.1）
 - [ ] B7：正文请求写法确定，`x-bt/message` 能取回短信内容
-- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件，把延迟压到秒级（已实现，卡在 Mac 侧 SDP 记录发布，见 §7.4）
+- [ ] B1：MNS 事件订阅能收到手机推来的新消息事件（已实现；Mac 侧 SDP 记录发布见 §7.4。秒级延迟另有高频轮询路径，`--interval 2 --limit 1`）
 - [ ] B2：HFP 能拿到来电号码，且不抢占系统音频
 - [ ] B6：手机重启 / 走出蓝牙范围后能自动重连
 
@@ -736,7 +755,7 @@ $ HarmonySync --mns-selftest
 | `sdp_publish_probe.swift` | Mac 侧 SDP 记录发布，十二种字典写法各起一个进程 | 已跑通 |
 | `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
 | `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 已跑通，见 §7.4 |
-| `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：本机 SDP 查询 + 数字元素四种写法 + 守候回连 | 待跑，见 §7.4.1 |
+| `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：状态 / 本机 SDP 查询 / 最简与对照 / 数字元素四种写法 / 守候回连 | 已跑通，见 §7.4.1 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
@@ -745,14 +764,15 @@ $ HarmonySync --mns-selftest
 
 **构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒、每轮 1 条的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
 | 参数 | 作用 |
 |---|---|
 | 无 | 持续轮询 + 订阅手机的新消息事件，新短信即通知 |
-| `--interval <秒>` | 改轮询间隔，默认 5 秒 |
+| `--interval <秒>` | 改轮询间隔，默认 5 秒；压到 2 秒即秒级延迟 |
+| `--limit <条>` | 每轮只取最新的 N 条，默认 20；配 1 条时请求最小 |
 | `--no-mns` | 只轮询，不订阅事件 |
 | `--once` | 只跑一轮就退出 |
 | `--reset` | 清空本地记录，下次运行重新建立基线 |

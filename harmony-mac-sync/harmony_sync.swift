@@ -19,7 +19,8 @@ let DEVICE_DEFAULT = "E8-1E-92-55-2D-D4"
 let CHANNEL_DEFAULT: UInt8 = 26
 var pollInterval: Double = 5.0           // 轮询间隔（秒），--interval 可改
 var mnsEnabled = true                    // --no-mns 可关掉事件订阅
-let LISTING_LIMIT: UInt16 = 20          // 每次只取最新的 N 条
+let LISTING_LIMIT_DEFAULT: UInt16 = 20   // 每次只取最新的 N 条，--limit 可改
+var listingLimit: UInt16 = LISTING_LIMIT_DEFAULT
 let MAX_CHUNKS = 80
 let STEP_TIMEOUT: Double = 15.0
 let RETRY_DELAY: Double = 8.0
@@ -841,10 +842,10 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         // MaxListCount：只要最新的 N 条。服务端不认时下面会退回整份列表。
         let limited = !forceFull && listingParamsSupported != false
         if limited {
-            let ap: [UInt8] = [0x01, 0x02, UInt8(LISTING_LIMIT >> 8), UInt8(LISTING_LIMIT & 0xFF)]
+            let ap: [UInt8] = [0x01, 0x02, UInt8(listingLimit >> 8), UInt8(listingLimit & 0xFF)]
             body += lenHeader(HDR_APPPARAMS, ap)
         }
-        let note = limited ? "GET 收件箱列表（最新 \(LISTING_LIMIT) 条）" : "GET 收件箱列表（整份）"
+        let note = limited ? "GET 收件箱列表（最新 \(listingLimit) 条）" : "GET 收件箱列表（整份）"
         send(frame(opcode: OBEX_GET_FINAL, body: withConnID(body)), note: note)
     }
 
@@ -1007,7 +1008,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
         // 窗口被打满且全是新短信：可能还有更早的新消息落在窗口外，改取整份
         if !needFullRetry && listingParamsSupported != false
-            && msgs.count >= Int(LISTING_LIMIT) && fresh.count == msgs.count {
+            && msgs.count >= Int(listingLimit) && fresh.count == msgs.count {
             emit("  窗口已满且 \(fresh.count) 条全新，改取整份列表")
             needFullRetry = true
             sendListing(forceFull: true)
@@ -1247,6 +1248,11 @@ if let i = args.firstIndex(of: "--interval"), i + 1 < args.count,
     pollInterval = v
     args.removeSubrange(i...(i + 1))
 }
+if let i = args.firstIndex(of: "--limit"), i + 1 < args.count,
+   let v = UInt16(args[i + 1]), v >= 1 {
+    listingLimit = v
+    args.removeSubrange(i...(i + 1))
+}
 args.removeAll { $0.hasPrefix("--") }
 
 emit("========================================")
@@ -1274,6 +1280,7 @@ emit("设备     : \(device.name ?? "?")")
 emit("通道     : \(channelID)")
 emit("数据库   : \(DB_PATH)")
 emit("轮询间隔 : \(Int(pollInterval)) 秒")
+emit("每轮条数 : \(listingLimit) 条")
 emit("模式     : \(once ? "只跑一轮" : "持续轮询")")
 emit("事件订阅 : \(mnsEnabled ? "开启（Mac 作 MNS 服务端）" : "关闭")")
 emit("基线     : \(bootstrapped ? "已建立，只处理新短信" : "未建立，本轮只记录不通知")")

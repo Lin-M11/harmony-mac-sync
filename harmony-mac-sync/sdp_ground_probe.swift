@@ -191,6 +191,51 @@ final class IncomingWatcher: NSObject {
 
 // MARK: - 用例
 
+/// 发一份字典并读回，返回是否拿到对象
+@discardableResult
+func publishAndReport(_ tag: String, _ dict: [String: Any]) -> Bool {
+    guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) else {
+        print("  [\(tag)] 发布 ✗ 返回空")
+        return false
+    }
+    print("  [\(tag)] 发布 ✓")
+    print("     - \(describe(rec))")
+    return true
+}
+
+func caseState() {
+    print("控制器与连接状态")
+    let hc = IOBluetoothHostController.default()
+    print("  本机地址 \(hc?.addressAsString() ?? "读不到")")
+    if let p = hc?.powerState {
+        print("  控制器电源 \(p.rawValue == 1 ? "开" : "关（原始值 \(p.rawValue)）")")
+    }
+    let paired = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
+    let connected = paired.filter { $0.isConnected() }
+    print("  已配对 \(paired.count) 台，当前连接 \(connected.count) 台")
+    for d in connected {
+        print("     · \(d.name ?? "?")  \(d.addressString ?? "?")")
+    }
+}
+
+func caseMinimal() {
+    print("最简记录：只放类 UUID + 服务名，不带协议栈")
+    publishAndReport("最简", [
+        "0001 ServiceClassIDList": [UUID_MNS],
+        "0100 ServiceName": MNS_NAME,
+    ])
+}
+
+func caseControl128() {
+    print("对照：换一个从未用过的 128 位类 UUID，同样不带协议栈")
+    let bytes = (0..<16).map { UInt8(0xA0 + $0) }
+    let u = IOBluetoothSDPUUID(data: Data(bytes))
+    publishAndReport("对照", [
+        "0001 ServiceClassIDList": [u],
+        "0100 ServiceName": "CONTROL-128",
+    ])
+}
+
 func caseAudit() {
     print("只查不发：本机 SDP 服务器现在存着什么")
     selfQuery("审计")
@@ -257,7 +302,8 @@ func caseHold(seconds: Double) {
 
 // MARK: - 入口
 
-let ALL = ["audit", "attr-dict-size", "attr-dict-plain", "attr-typed", "attr-number", "hold"]
+let ALL = ["state", "audit", "minimal", "control-128",
+           "attr-dict-size", "attr-dict-plain", "attr-typed", "attr-number", "hold"]
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
@@ -275,7 +321,10 @@ if name == "list" {
 print("===== 用例 \(name) =====")
 
 switch name {
+case "state":            caseState()
 case "audit":            caseAudit()
+case "minimal":          caseMinimal()
+case "control-128":      caseControl128()
 case "attr-dict-size":   caseAttr(style: .dictSize)
 case "attr-dict-plain":  caseAttr(style: .dictPlain)
 case "attr-typed":       caseAttr(style: .typed)
