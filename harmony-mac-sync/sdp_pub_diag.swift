@@ -105,6 +105,33 @@ func mnsPersistDict() -> [String: Any] {
     return d
 }
 
+/// 串口服务，协议列表多一层 OBEX
+func sppObexDict() -> [String: Any] {
+    [
+        "0001 ServiceClassIDList": [sppU],
+        "0004 ProtocolDescriptorList": [
+            [l2capU, numData([0x00, 0x03])],
+            [rfcommU, numData([CH])],
+            [obexU],
+        ],
+        "0005 BrowseGroupList": [browseU],
+        "0100 ServiceName": "SPP 加 OBEX",
+    ]
+}
+
+/// MAP MNS，协议列表不带 OBEX
+func mnsNoObexDict() -> [String: Any] {
+    [
+        "0001 ServiceClassIDList": [mnsU],
+        "0004 ProtocolDescriptorList": [
+            [l2capU, numData([0x00, 0x03])],
+            [rfcommU, numData([CH])],
+        ],
+        "0005 BrowseGroupList": [browseU],
+        "0100 ServiceName": "MAP MNS",
+    ]
+}
+
 func report(_ tag: String, _ rec: IOBluetoothSDPServiceRecord) {
     var handle: BluetoothSDPServiceRecordHandle = 0
     let hrc = rec.getHandle(&handle)
@@ -126,10 +153,7 @@ func report(_ tag: String, _ rec: IOBluetoothSDPServiceRecord) {
 
     let rc1 = rec.remove()
     let rc2 = rec.remove()
-    let ok1 = rc1 == kIOReturnSuccess
-    let ok2 = rc2 == kIOReturnSuccess
-    print("  [\(tag)] remove 第一次 \(rc1)\(ok1 ? "（成功）" : "（未成功）")，第二次 \(rc2)\(ok2 ? "（成功）" : "（未成功）")")
-    print("  [\(tag)] 配对\(ok1 && !ok2 ? "成立 → 记录确实挂上去过" : "不成立")")
+    print("  [\(tag)] remove 第一次 \(rc1)，第二次 \(rc2)（两次读数一致时不构成判据）")
 }
 
 func publish(_ tag: String, _ dict: [String: Any]) {
@@ -140,6 +164,24 @@ func publish(_ tag: String, _ dict: [String: Any]) {
     print("  [\(tag)] 发布 ✓ 拿到对象")
     report(tag, rec)
     RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+}
+
+/// 同一份字典在同一个进程里连着发几次，看第几次开始变
+func repeatPublish(_ tag: String, _ dict: [String: Any], times: Int) {
+    for i in 1...times {
+        if let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) {
+            var h: BluetoothSDPServiceRecordHandle = 0
+            let hrc = rec.getHandle(&h)
+            var cid: BluetoothRFCOMMChannelID = 0
+            let crc = rec.getRFCOMMChannelID(&cid)
+            let hs = hrc == kIOReturnSuccess ? "0x" + String(format: "%X", h) : "读不到"
+            let cs = crc == kIOReturnSuccess ? "\(cid)" : "读不到"
+            print("  [\(tag)] 第 \(i) 次 ✓ 句柄 \(hs)  RFCOMM \(cs)")
+        } else {
+            print("  [\(tag)] 第 \(i) 次 ✗ 返回空")
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+    }
 }
 
 // MARK: - C 层
@@ -216,18 +258,26 @@ func caseMnsOurs() { print("MAP MNS，当前写法"); publish("MNS·当前", mns
 func caseMnsMin()  { print("MAP MNS，只留 0001 与 0004"); publish("MNS·精简", mnsMinDict()) }
 func caseMnsL2cap(){ print("MAP MNS，0004 只留 L2CAP"); publish("MNS·L2CAP", mnsL2capDict()) }
 func caseMnsPersist() { print("MAP MNS，带本地属性 Persistent"); publish("MNS·留存", mnsPersistDict()) }
+func caseSppObex() { print("串口服务，协议列表多一层 OBEX"); publish("串口·加OBEX", sppObexDict()) }
+func caseMnsNoObex() { print("MAP MNS，协议列表不带 OBEX"); publish("MNS·无OBEX", mnsNoObexDict()) }
+func caseRepeatSpp() { print("同一份串口字典连发 4 次"); repeatPublish("串口·连发", sppDataDict(), times: 4) }
+func caseRepeatMns() { print("同一份 MAP MNS 字典连发 4 次"); repeatPublish("MNS·连发", mnsDict(), times: 4) }
 func caseCapiSpp() { print("C 层：串口服务"); capiPublish("C·串口", sppDataDict()) }
 func caseCapiMns() { print("C 层：MAP MNS"); capiPublish("C·MNS", mnsDict()) }
 
 let ALL: [(String, () -> Void)] = [
     ("bundle", caseBundle),
     ("parse", caseParse),
+    ("mns-ours", caseMnsOurs),
     ("spp-num", caseSppNum),
     ("spp-data", caseSppData),
-    ("mns-ours", caseMnsOurs),
+    ("spp-obex", caseSppObex),
+    ("mns-nobex", caseMnsNoObex),
     ("mns-min", caseMnsMin),
     ("mns-l2cap", caseMnsL2cap),
     ("mns-persist", caseMnsPersist),
+    ("repeat-spp", caseRepeatSpp),
+    ("repeat-mns", caseRepeatMns),
     ("capi-spp", caseCapiSpp),
     ("capi-mns", caseCapiMns),
 ]

@@ -584,15 +584,20 @@ SDP 记录的属性：
 
 对本机地址做 SDP 查询也不能当判据：发布前和发布后各查一次，读数都是 0 条，它区分不出记录在不在。同一次运行里对**手机**做 SDP 查询能正常返回记录，说明查询代码本身没问题，是本机查询这条路取不到本机 SDP 数据库。
 
-所以判据换成**手机的行为**——这也正是这条链路要的东西：
+`remove()` 的返回值同样不能当判据：实测连删两次**都返回成功**（`0`），记录在不在它都这么答。删不到时它另有一个返回值（按句柄删是 `kIOReturnNoDevice`），但对同一条记录连删两次的读数是一样的，配不成对。
+
+所以判据换成**蓝牙守护进程的日志**加**手机的行为**：
 
 | 观察点 | 说明 |
 |---|---|
+| `addServiceDataToLocalSDP: SRH …` | 记录有没有真的进本机 SDP 库，以及分到的句柄 |
+| `addServiceDataToLocalSDP: Number of attributes: n` | 属性有没有被解析进去 |
+| `Failed to register psm with result …` | 协议栈那一层有没有挂上 |
 | 订阅返回码 | MAS 通道上的 `PUT` 是否回 `0xA0` |
 | 手机是否回连 | 入站通道上有没有出现连接 |
 | 事件是否到达 | 回连后 `x-bt/map-event-report` 的正文 |
 
-本机侧留一个可用的判据：`IOBluetoothSDPServiceRecord.remove()` 的返回值。记录确实在时返回成功，已撤回后再调一次不成功——两个读数配对，就能确认记录真的挂上去过。`truth` 用例把这个配对做在同一个进程里。
+日志抓取写在脚本里（`run_pub_diag.command` 第四段）。框架的内部报错记在**调用方进程名**下，不只记在 `bluetoothd` 名下，两个进程名都要带。
 
 **角色方向（2026-10-10 核对）**
 
@@ -740,20 +745,63 @@ MAS 通道上的订阅这次回 `0xA0`：
 |---|---|
 | `bundle` | 进程身份：Bundle ID、用途说明、C 层符号是否齐全 |
 | `parse` | 三份字典各过一遍 `withServiceDictionary`，打印属性原文 |
+| `mns-ours` | MAP MNS，当前生产写法 |
 | `spp-num` | 对照组：串口服务（`0x1101`），键名带后缀、数字用数值 |
 | `spp-data` | 对照组：串口服务，键名不带后缀、数字用数据 |
-| `mns-ours` | MAP MNS，当前生产写法 |
+| `spp-obex` | 串口服务，协议列表多一层 OBEX |
+| `mns-nobex` | MAP MNS，协议列表不带 OBEX |
 | `mns-min` | MAP MNS，只留 `0001` 与 `0004` |
 | `mns-l2cap` | MAP MNS，`0004` 只留 L2CAP |
 | `mns-persist` | MAP MNS，带 `LocalAttributes` 的 `Persistent` |
+| `repeat-spp` | 同一份串口字典在同一进程里连发 4 次 |
+| `repeat-mns` | 同一份 MAP MNS 字典在同一进程里连发 4 次 |
 | `capi-spp` | C 层 `IOBluetoothAddServiceDict` 发串口服务 |
 | `capi-mns` | C 层 `IOBluetoothAddServiceDict` 发 MAP MNS |
 
-串口服务是对照组：系统文档里的示例就是它。它若也返回空，说明瓶颈在发布这条路上，与 MAP 的字典内容无关。
+`spp-*` 与 `mns-*` 构成一组对照：串口服务是系统文档里就有示例的标准服务，它若也发不出去，说明瓶颈在发布这条路上，与 MNS 的字典内容无关。`spp-obex` 与 `mns-nobex` 把「类 UUID」和「协议列表里带不带 OBEX」这两个变量分开。
 
-探针本机侧已确认三件事：Bundle 身份正常（`Bundle.main.bundleIdentifier` 有值、用途说明在）、C 层两个符号（`IOBluetoothAddServiceDict`、`IOBluetoothRemoveServiceWithRecordHandle`）都存在、三份字典都能过 `withServiceDictionary`。
+`repeat-*` 看的是同一份字典连发时的变化，用来判断前一次发布会不会影响后一次。
 
-脚本 `run_pub_diag.command`：重启蓝牙守护进程 → 十个用例 → 抓蓝牙守护进程与探针自身的日志（近 3 分钟）。日志这一段是为了拿到服务器对发布请求给出的理由。
+`capi-*` 走 C 层 `IOBluetoothAddServiceDict`（`dlsym` 取符号），与 Objective-C 层的结果对照——两层读数一致时，可以排除某一层特有的问题。
+
+脚本 `run_pub_diag.command` 分四段：重启蓝牙守护进程 → 进程身份与字典原文 → **内容隔离**（每个用例前各重启一次，让每个用例都成为「重启后的第一个服务」）→ **连续发布**（同一份字典在同一进程里连发四次）→ 抓蓝牙守护进程与探针自身的日志。
+
+**发布判定实测（2026-10-10 14:00）**
+
+重启蓝牙守护进程后逐项跑，结果分成两半：
+
+| 用例 | 服务 | 结果 |
+|---|---|---|
+| `spp-num` | 串口 `0x1101`，数字用数值 | **发布 ✓** 句柄 `0x4F491101`，RFCOMM 通道 1 |
+| `spp-data` | 串口 `0x1101`，数字用数据 | **发布 ✓** 句柄 `0x4F491101`，RFCOMM 通道 1 |
+| `capi-spp` | C 层发串口 | **返回 0（成功）** 句柄 `0x700050` |
+| `mns-ours` | MAP MNS `0x1133`，当前写法 | ✗ 返回空 |
+| `mns-min` | MAP MNS，只留 `0001` + `0004` | ✗ 返回空 |
+| `mns-l2cap` | MAP MNS，`0004` 只留 L2CAP | ✗ 返回空 |
+| `mns-persist` | MAP MNS，带 `Persistent` | ✗ 返回空 |
+| `capi-mns` | C 层发 MAP MNS | ✗ 返回 `0xE00002BC` |
+
+**发布这条路是通的**——串口服务在 Objective-C 层与 C 层都能发出去，而且读回的属性是真实的数据元素（`uuid32(00 00 11 01)`、`{ uuid32(00 00 00 03), uint32(3) }`），RFCOMM 通道号也读得到。**MAP MNS 这一份两份写法都发不出去**，C 层也一样。所以瓶颈落在 MNS 这份记录本身，与发布通道无关。
+
+同一轮的蓝牙守护进程日志给出了具体停在哪一步：
+
+```
+addServiceDataToLocalSDP: SRH 0x4F491133
+addServiceDataToLocalSDP: Number of attributes: 5
+addServiceDataToLocalSDP: publishing PSM 3
+trying to publish psm:3 inMTU:1024 inMPS:1024 ... for session "…classic-…-63"
+Registering L2CAP Channel with PSM 0x0003 for session "…classic-…-63"
+Failed to register L2CAP Channel with PSM 0x0003 ... with result 402
+Failed to register psm with result 0x709
+```
+
+三点读数：
+
+1. **记录本身建起来了**——`SRH 0x4F491133`，5 条属性全部解析进去（与字典里的五个键对上）。
+2. **停在后一步**：按协议列表里的 L2CAP 项去注册 PSM 3（RFCOMM 的公共 PSM），这一步失败。
+3. 句柄的构成是 `0x4F49` 加上类 UUID：串口拿到 `0x4F491101`、MNS 拿到 `0x4F491133`。同一个类 UUID 反复发布，拿回的是同一个句柄。
+
+据此把下一轮要问的问题收敛成一个：**MNS 作为「重启后的第一个服务」发布时，能不能成**。能成，说明是 PSM 被前一个服务占住；不能成，说明是这份记录的内容被拒。`run_pub_diag.command` 第二段的「每个用例前各重启一次」就是为这个问题设计的，同时用「串口 + OBEX」与「MNS 不带 OBEX」两个用例把类 UUID 和协议列表这两项变量分开。
 
 发布是异步的：发出后先跑一两秒 RunLoop 再读回。
 
@@ -901,7 +949,7 @@ $ HarmonySync --mns-selftest
 | `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
 | `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 已跑通，见 §7.4 |
 | `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：状态 / 本机与手机查询对照 / 单进程全流程对照 / 最简与对照 / 数字元素写法 / 守候回连 | 已跑通，见 §7.4.1 |
-| `sdp_pub_diag.swift` | 发布判定：进程身份 / 字典原文 / 串口服务对照 / MAP MNS 四种写法 / C 层接口 | 已跑通，见 §7.4 |
+| `sdp_pub_diag.swift` | 发布判定：进程身份 / 字典原文 / 串口服务对照 / MAP MNS 各种写法 / 连续发布 / C 层接口，共 14 个用例 | 已跑通，见 §7.4 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
@@ -910,7 +958,7 @@ $ HarmonySync --mns-selftest
 
 **构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：本机十项读数 + 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：身份与字典原文 → 内容隔离，每个用例前各重启一次 → 连续发布 → 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
