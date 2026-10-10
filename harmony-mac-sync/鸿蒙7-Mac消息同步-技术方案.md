@@ -264,7 +264,7 @@ Mac → 手机（本期可选实现）：
   AT+CHUP  ← 挂断
 ```
 
-> ⚠️ 注意：macOS 系统本身可能把手机识别为音频设备并占用 HFP 通道。**应避免启用 SCO 音频链路**，只处理信令，否则会与系统音频抢占。
+> ⚠ 注意：macOS 系统本身可能把手机识别为音频设备并占用 HFP 通道。**应避免启用 SCO 音频链路**，只处理信令，否则会与系统音频抢占。
 
 ### 5.3 为什么不用其它协议
 
@@ -578,40 +578,69 @@ SDP 记录的属性：
 | ServiceName | `MAP MNS` |
 | SupportedFeatures | `0x00000003`（Notification Registration + Notification） |
 
-**判据（2026-10-10 实测）**
+**判据（2026-10-10 更新）**
 
-以「对本机地址做一次真正的 SDP 查询」为准——这才是对端（手机）的视角：`IOBluetoothDevice(addressString: 本机地址)` 加 `performSDPQuery`，逐条列出名称、句柄、属性 ID、`0x0004` 是否存在、RFCOMM 通道号。
+发布侧读回来的对象不能当判据：同一台机器连着发布五次，换服务名、换协议栈写法，读回来的属性 ID 列表**完全一样**（`0000,0001,0002,0005,0006,0008,0100`），`0x0004` 从来不出现，RFCOMM 通道号永远读不到。
 
-返回对象的属性读数只当参考：实测同一台机器连着发布五次，换服务名、换协议栈写法，读回来的服务名和属性列表**完全一样**（都是第一次那份），它反映不出对端能看到什么。
+对本机地址做 SDP 查询也不能当判据：发布前和发布后各查一次，读数都是 0 条，它区分不出记录在不在。同一次运行里对**手机**做 SDP 查询能正常返回记录，说明查询代码本身没问题，是本机查询这条路取不到本机 SDP 数据库。
 
-发布侧另外配一层候选轮换：
+所以判据换成**手机的行为**——这也正是这条链路要的东西：
 
-1. **数字元素的四种写法**：完整字典（`DataElementType` + `DataElementSize` + `DataElementValue` 三项齐全）、显式构造（`withType:sizeDescriptor:size:value:`）、裸 `NSNumber`（规范说这种按 32 位无符号整数处理）、简写字典（只有类型和值，长度即宽度）。
-2. **协议栈的表达方式**：嵌套数组 / 仅 UUID；`0x0009` Profile 描述可带可不带。
+| 观察点 | 说明 |
+|---|---|
+| 订阅返回码 | MAS 通道上的 `PUT` 是否回 `0xA0` |
+| 手机是否回连 | 入站通道上有没有出现连接 |
+| 事件是否到达 | 回连后 `x-bt/map-event-report` 的正文 |
 
-候选共五份：四种数字写法配嵌套数组，再加一份「完整字典 + 嵌套数组 + 不带 Profile」。逐个发布、读回，取第一份能读回通道号的。
+本机侧留一个可用的判据：`IOBluetoothSDPServiceRecord.remove()` 的返回值。记录确实在时返回成功，已撤回后再调一次不成功——两个读数配对，就能确认记录真的挂上去过。`truth` 用例把这个配对做在同一个进程里。
+
+**角色方向（2026-10-10 核对）**
+
+MNS 由 MCE 一侧注册。Android 的 `MapClientService`（MCE 角色）启动时就建一个 `MnsService`，它先开 OBEX 服务端套接字拿到 RFCOMM 通道号，再调 `SdpManager.createMapMnsRecord("MAP Message Notification Service", 通道号, -1, MNS_VERSION, MAP_SUPPORTED_FEATURES)` 把记录挂出去。手机作为 MSE，订阅生效后按这条记录回连。方案里的分工与它一致。
+
+发布侧配一层候选轮换，只放本机 SDP 服务器接受得了的表达方式：
+
+1. **数字元素**：完整字典（`DataElementType` + `DataElementSize` + `DataElementValue` 三项齐全）、简写字典（只有类型和值，长度即宽度）。
+2. **协议栈的表达方式**：嵌套数组；`0x0009` Profile 描述可带可不带。
+
+候选共四份：两种数字写法各配「带 Profile」与「不带 Profile」。逐个发布、读回，取第一份能读回通道号的；都读不到就留第一份当保底，入站监听另外叠一层「所有入站通道」。
+
+**数字元素的两种可用表达**（`sdp_ground_probe.swift` 里另有两个用例专门摸边界）：完整字典与简写字典能被本机 SDP 服务器接受；显式构造（`withType:sizeDescriptor:size:value:`）与裸 `NSNumber` 会让发布整体返回空，且本机 SDP 服务器随后会连着拒收后续记录——`0x1133`、从未用过的 128 位 UUID 一律照拒，重启蓝牙守护进程才恢复。
 
 **用 `Data` 表达数字时必须显式写 `DataElementType`。** 框架会把裸 `Data` 推断成 UUID 类型，1 字节的 `Data`（比如 RFCOMM 通道号）不是合法的 UUID 宽度，框架会打印 `size for type 3 (UUID) invalid: 1 bytes`，整条记录发布返回空。
 
 **心跳（2026-10-10 实测）**：客户端每 10 秒打一行状态。轮询本身是静默的，日志里分不出是在等还是已经不动了——那次跑动里四种候选写法发布全部返回空之后，90 秒里一行输出都没有。
 
-**发布侧的状态记录（2026-10-10 09:40 实测）**
+**发布侧的状态记录（2026-10-10 09:40 与 10:17 两次实测）**
 
-本机 SDP 查询这条路本身是通的（本机地址能读到，查询正常返回），那次查询结果是 0 条——因为同一轮里所有发布都没成。四种数字写法加守候里的三份，发布**全部返回空**。
+09:40 那轮：四种数字写法加守候里的三份，发布**全部返回空**。关键是其中「简写字典」那份与 09:22 拿到对象的那次**字节相同**——同一份字典、新起的进程、不同的结果，说明变的是本机 SDP 服务器的状态，不是字典内容。时间线上 09:22:45 之前各用例都能拿到对象，09:22:49 起全部返回空；这中间只跑过用 `withElementValue` 装 `Data` 的那个用例，框架当场报了 `size for type 3 (UUID) invalid: 1 bytes`。
 
-关键是：其中「简写字典」那份与 09:22 拿到对象的那次**字节相同**。同一份字典、新起的进程、不同的结果，说明变的是本机 SDP 服务器的状态，不是字典内容。
+10:17 重启蓝牙守护进程后再跑一轮（`run_sdp_reset_check.command`），读数：
 
-时间线上，09:22:45 之前各用例都能拿到对象，09:22:49 起全部返回空。这中间只跑过一个用例：用 `withElementValue` 装 `Data` 的那个，框架当场报了 `size for type 3 (UUID) invalid: 1 bytes`。所以下一步是**重启蓝牙守护进程**把服务器状态清干净，再按「最简 → 对照 → 完整」的顺序验一遍。
+| 用例 | 发布 | 读回 |
+|---|---|---|
+| `state` | — | 控制器电源开，已配对 9 台，当前连接 0 台 |
+| `minimal` | ✓ 句柄 `0x4F491133` | 属性 `[0000,0001,0002,0005,0006,0008,0100]`，`0004` 没有 |
+| `control-128` | ✓ 句柄 `0x4F49C0B0` | 同上 |
+| `attr-dict-size` | ✓ | 同上，本机 SDP 查询 0 条 |
+| `attr-typed` | ✗ 返回空 | — |
+| `hold` | 完整字典 ✓（通道读不到）／显式构造 ✗／裸 `NSNumber` ✗ | 本机查询 0 条，守候 120 秒入站 0 次 |
 
-探针为此补了三个用例：
+**重启把「发布返回空」解开了**：`minimal`、`control-128`、`attr-dict-size` 重新拿得到对象，而且换一个从未用过的 128 位类 UUID 也照收——说明服务器不是按类 UUID 拒收。剩下两件事没变：读回的属性 ID 列表恒定、`0x0004` 恒定缺席、RFCOMM 通道号恒定读不到；本机 SDP 查询恒定 0 条。这两件事都归到「读数不可用」这一条上，见前面的判据段。
+
+那 120 秒的守候是在手机**没连上**的前提下跑的——重启蓝牙之后手机变成 `Not Connected`、当前连接 0 台。要验回连，得先让手机连上，或者让手机重新做一遍服务发现。
+
+探针为此补的用例：
 
 | 用例 | 回答什么 |
 |---|---|
 | `state` | 控制器电源、本机地址、当前连接的设备——先排除「控制器没开」这类外部因素 |
 | `minimal` | 只放类 UUID + 服务名，不带协议栈。它成了就说明服务器本身收，问题在协议栈那一层的表达 |
 | `control-128` | 换一个从未用过的 128 位类 UUID，同样不带协议栈。它成了就说明服务器按类 UUID 拒收 |
+| `phone` | 对照组：对手机做 SDP 查询。这条路径已知能返回记录，用它证明查询代码本身没问题 |
+| `truth` | 一个进程里串起「查手机 → 查本机 → 发布 → 再查本机 → 撤回」，每步读数可比 |
 
-配套脚本 `run_sdp_reset_check.command`：重启蓝牙守护进程 → `state` / `minimal` / `control-128` / `attr-dict-size` / `attr-typed` → 守候 120 秒。
+配套脚本两个：`run_sdp_reset_check.command`（重启蓝牙守护进程 → `state` / `minimal` / `control-128` / `attr-dict-size` / `attr-typed` → 守候 120 秒）、`run_mns_live.command`（`state` / `phone` / `truth` → 客户端跑 200 秒）。
 
 **定时轮询继续保留**：事件丢失时它是兜底，订阅不可用时它是唯一路径。`--no-mns` 可以关掉订阅做对照。
 
@@ -680,10 +709,10 @@ $ HarmonySync --mns-selftest
 
 **要观察的点**
 
-1. 本机 SDP 查询里，MNS 那条记录的 `0x0004` 是否出现、RFCOMM 通道号是多少
+1. 订阅返回码是否变成 `0xA0`
 2. 手机是否真的发起这条回连——方向与平时的连接相反
-3. 订阅返回码是否变成 `0xA0`
-4. 事件延迟：订阅生效后事件会立刻触发一次拉取，不等下一个周期
+3. 事件延迟：订阅生效后事件会立刻触发一次拉取，不等下一个周期
+4. 本机 SDP 记录是否真的挂上去了——用 `remove()` 的返回值配对判断，见前面的判据段
 
 **只跑 MNS 的入口**
 
@@ -697,6 +726,8 @@ $ HarmonySync --mns-selftest
 |---|---|
 | `state` | 控制器电源、本机地址、当前连接的设备 |
 | `audit` | 只查不发。对本机地址做 SDP 查询，列出全部记录 |
+| `phone` | 对照组：对手机做 SDP 查询。证明查询代码本身没问题 |
+| `truth` | 一个进程里串起「查手机 → 查本机 → 发布 → 再查本机 → 撤回」，每步读数可比 |
 | `minimal` | 最简记录：只有类 UUID + 服务名，不带协议栈 |
 | `control-128` | 对照：换一个从未用过的 128 位类 UUID，同样不带协议栈 |
 | `attr-dict-size` | 数字元素用完整字典（含 `DataElementSize`） |
@@ -707,9 +738,11 @@ $ HarmonySync --mns-selftest
 
 `minimal` 与 `control-128` 是一对：前者排除「服务器整体不收」，后者排除「服务器按类 UUID 拒收」。
 
+`phone` 与 `audit` 是一对：前者证明查询代码能返回记录，后者的 0 条才有意义——它说明本机查询这条路取不到本机 SDP 数据库，而不是查询坏了。
+
 `hold` 里三条记录用不同通道号，手机连过来时打出的通道号能反推出它选了哪一份记录。
 
-两个配套脚本：`run_ground_check.command`（审计 → 四种读数写法 → 守候 150 秒）、`run_sdp_reset_check.command`（重启蓝牙守护进程 → 状态 / 最简 / 对照 / 完整 → 守候 120 秒）。
+配套脚本三个：`run_ground_check.command`（审计 → 四种读数写法 → 守候 150 秒）、`run_sdp_reset_check.command`（重启蓝牙守护进程 → 状态 / 最简 / 对照 / 完整 → 守候 120 秒）、`run_mns_live.command`（`state` / `phone` / `truth` → 客户端跑 200 秒，含秒级轮询）。
 
 ### 7.5 后续版本 B2：HFP 信令
 
@@ -755,7 +788,7 @@ $ HarmonySync --mns-selftest
 | `sdp_publish_probe.swift` | Mac 侧 SDP 记录发布，十二种字典写法各起一个进程 | 已跑通 |
 | `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
 | `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 已跑通，见 §7.4 |
-| `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：状态 / 本机 SDP 查询 / 最简与对照 / 数字元素四种写法 / 守候回连 | 已跑通，见 §7.4.1 |
+| `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：状态 / 本机与手机查询对照 / 单进程全流程对照 / 最简与对照 / 数字元素写法 / 守候回连 | 已跑通，见 §7.4.1 |
 | `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
 | `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
 | `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
@@ -764,7 +797,7 @@ $ HarmonySync --mns-selftest
 
 **构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒、每轮 1 条的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_live.command`（本机 SDP 记录核对 + 事件订阅实测，客户端跑 200 秒，含秒级轮询）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒、每轮 1 条的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 

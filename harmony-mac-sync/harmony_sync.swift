@@ -625,18 +625,18 @@ final class MnsServer: NSObject {
     var incomingCount = 0
 
     // 候选写法：数字元素的表达方式 × 协议栈的表达方式。
-    // 从最贴近规范的一份开始，读回通道号即停。
+    // 数字元素只用本机 SDP 服务器接受得了的两类：完整字典、简写字典。
     let CANDIDATES: [(NumStyle, PdlStyle, Bool)] = [
         (.dictSize, .nestedDict, true),
-        (.typed, .nestedDict, true),
-        (.number, .nestedDict, true),
         (.dictPlain, .nestedDict, true),
         (.dictSize, .nestedDict, false),
+        (.dictPlain, .nestedDict, false),
     ]
 
     func start(onEvent: @escaping (String) -> Void) {
         self.onEvent = onEvent
 
+        var fallback: IOBluetoothSDPServiceRecord?
         for (index, cand) in CANDIDATES.enumerated() {
             let label = "写法 \(index + 1)（\(cand.0.rawValue) + \(cand.1.rawValue)\(cand.2 ? " + Profile" : "")）"
             let dict = mnsServiceDict(channel: MNS_RFCOMM_CHANNEL, num: cand.0,
@@ -659,10 +659,15 @@ final class MnsServer: NSObject {
                 emit("  [MNS] ✓ 采用\(label)，RFCOMM 通道 \(cid)")
                 break
             }
-            record = rec   // 保底：至少留一份记录挂在本机 SDP 服务器上
-            _ = rec.remove()
+            // 读不出通道号：留第一份当保底，其余撤掉，免得同一个通道挂多条记录
+            if fallback == nil {
+                fallback = rec
+            } else {
+                _ = rec.remove()
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         }
+        if record == nil { record = fallback }
 
         guard record != nil else {
             emit("  [MNS] ✗ 本机 SDP 服务器没接受这 \(CANDIDATES.count) 种候选写法")

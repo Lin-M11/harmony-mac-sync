@@ -32,6 +32,8 @@ let UUID_MNS    = IOBluetoothSDPUUID(uuid16: 0x1133)!
 
 let MNS_NAME = "MAP MNS"
 
+let PHONE_DEFAULT = "E8-1E-92-55-2D-D4"
+
 // MARK: - 数字元素的几种写法
 
 enum NumStyle: String {
@@ -163,6 +165,33 @@ func selfQuery(_ tag: String) -> Int {
     return services.count
 }
 
+/// 对任意设备做一次真正的 SDP 查询。拿手机当对照组——那条路径已知能返回记录，
+/// 用它来证明查询代码本身没问题，本机查询的读数才有意义。
+@discardableResult
+func queryDevice(_ tag: String, address: String) -> Int {
+    guard let dev = IOBluetoothDevice(addressString: address) else {
+        print("  [\(tag)] \(address) 构不成设备对象")
+        return -1
+    }
+    print("  [\(tag)] \(dev.name ?? "(无名)")  \(address)")
+    print("  [\(tag)] 已配对 \(dev.isPaired() ? "是" : "否")   已连接 \(dev.isConnected() ? "是" : "否")")
+    _ = dev.performSDPQuery(nil)
+    var waited = 0.0
+    while waited < 10.0 {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        waited += 0.5
+        if let s = dev.services, !s.isEmpty { break }
+    }
+    let services = dev.services ?? []
+    print("  [\(tag)] SDP 查询到 \(services.count) 条记录")
+    for item in services {
+        guard let r = item as? IOBluetoothSDPServiceRecord else { continue }
+        let mark = r.matchesUUID16(0x1133) ? "  ← MNS" : (r.matchesUUID16(0x1132) ? "  ← MAS" : "")
+        print("     - \(r.getServiceName() ?? "(无名)")\(mark)")
+    }
+    return services.count
+}
+
 // MARK: - 入站连接监听
 
 final class IncomingWatcher: NSObject {
@@ -241,6 +270,58 @@ func caseAudit() {
     selfQuery("审计")
 }
 
+func casePhone() {
+    print("对照组：对手机做 SDP 查询。这条路径已知能返回记录")
+    let addr = CommandLine.arguments.count >= 3 ? CommandLine.arguments[2] : PHONE_DEFAULT
+    queryDevice("手机", address: addr)
+}
+
+/// 一个进程里把「查询 → 发布 → 查询 → 撤回」串起来，让每一步的读数可比。
+/// 拆成多个进程跑的时候，记录会随进程退出消失，前后读数对不上。
+func caseTruth() {
+    let addr = CommandLine.arguments.count >= 3 ? CommandLine.arguments[2] : PHONE_DEFAULT
+
+    print("[1] 对手机做 SDP 查询（证明查询代码本身没问题）")
+    let phoneCount = queryDevice("手机", address: addr)
+
+    print("")
+    print("[2] 发布前，查本机")
+    let before = selfQuery("发布前")
+
+    print("")
+    print("[3] 发布一份完整 MNS 记录（简写字典 + 嵌套数组 + Profile）")
+    let dict = recordDict(style: .dictPlain, name: MNS_NAME, channel: 10, includeProfile: true)
+    guard let rec = IOBluetoothSDPServiceRecord.publishedServiceRecord(with: dict) else {
+        print("  发布 ✗ 返回空，后面几步没法做")
+        return
+    }
+    RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+    print("  发布 ✓")
+    print("     - \(describe(rec))")
+
+    print("")
+    print("[4] 发布后，查本机")
+    let after = selfQuery("发布后")
+
+    print("")
+    print("[5] 撤回这条记录，用返回值当判据")
+    let rc1 = rec.remove()
+    print("  第一次 remove() 返回 \(rc1)\(rc1 == kIOReturnSuccess ? "（成功）" : "（未成功）")")
+    let rc2 = rec.remove()
+    print("  第二次 remove() 返回 \(rc2)\(rc2 == kIOReturnSuccess ? "（成功）" : "（未成功）")  ← 已撤回时不该再成功，这是对照")
+
+    print("")
+    print("[6] 小结")
+    print("  手机查询 \(phoneCount) 条")
+    print("  本机查询：发布前 \(before) 条，发布后 \(after) 条")
+    if phoneCount > 0 && before == 0 && after == 0 {
+        print("  → 查询代码是通的（手机能查到），但本机查询在发布前后读数一样，区分不出记录在不在")
+    }
+    if rc1 == kIOReturnSuccess && rc2 != kIOReturnSuccess {
+        print("  → remove() 的返回值能区分「记录在」与「记录已撤」")
+    }
+}
+
 func caseAttr(style: NumStyle) {
     print("数字元素写法：\(style.rawValue)")
     let dict = recordDict(style: style, name: MNS_NAME, channel: 10, includeProfile: true)
@@ -302,7 +383,7 @@ func caseHold(seconds: Double) {
 
 // MARK: - 入口
 
-let ALL = ["state", "audit", "minimal", "control-128",
+let ALL = ["state", "audit", "phone", "truth", "minimal", "control-128",
            "attr-dict-size", "attr-dict-plain", "attr-typed", "attr-number", "hold"]
 
 let args = CommandLine.arguments
@@ -323,6 +404,8 @@ print("===== 用例 \(name) =====")
 switch name {
 case "state":            caseState()
 case "audit":            caseAudit()
+case "phone":            casePhone()
+case "truth":            caseTruth()
 case "minimal":          caseMinimal()
 case "control-128":      caseControl128()
 case "attr-dict-size":   caseAttr(style: .dictSize)
