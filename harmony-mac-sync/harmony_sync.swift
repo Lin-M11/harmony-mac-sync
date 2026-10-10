@@ -1,6 +1,8 @@
 import Foundation
 import IOBluetooth
 import SQLite3
+import UserNotifications
+import AppKit
 
 // 鸿蒙短信 → Mac 增量同步
 //
@@ -327,14 +329,107 @@ final class Store {
 
 // MARK: - 通知
 
-func applescriptQuote(_ s: String) -> String {
-    let escaped = s.replacingOccurrences(of: "\\", with: "\\\\")
-                   .replacingOccurrences(of: "\"", with: "\\\"")
-    return "\"" + escaped + "\""
+/// 以 App 的名义弹系统通知：走通知中心，通知里显示 App 名称与图标，
+/// 通知中心里也能翻到。放在 .app 包里运行才有这个身份。
+final class Notifier: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = Notifier()
+
+    private var usable: Bool { Bundle.main.bundleIdentifier != nil }
+    private var authAnswered = false
+
+    func prepare(activate: Bool = false) {
+        guard usable else {
+            emit("  通知：当前不是 App 包，退回脚本方式")
+            return
+        }
+        // 以 App 的身份连上窗口服务：通知中心是按「App」来认身份与授权的
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        // 只有在需要让用户看到系统询问时才抢焦点，日常同步不动用户当前窗口
+        if activate { app.activate(ignoringOtherApps: true) }
+
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, err in
+            self?.authAnswered = true
+            if let err = err {
+                emit("  ⚠ 通知授权出错：\(err.localizedDescription)")
+            } else if granted {
+                emit("  ✓ 通知已授权")
+            } else {
+                emit("  ⚠ 通知未授权，到「系统设置 → 通知」里打开")
+            }
+        }
+    }
+
+    /// 等授权询问有回音。系统询问要用户点一下，给足时间。
+    func waitForAuthorization(seconds: Double) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !authAnswered && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        if !authAnswered { emit("  · 授权询问没有回应，按当前状态继续") }
+    }
+
+    /// 把当前的授权状态读出来，好确认授权是否到位
+    func reportSettings() {
+        let sem = DispatchSemaphore(value: 0)
+        var text = "读不到"
+        UNUserNotificationCenter.current().getNotificationSettings { s in
+            switch s.authorizationStatus {
+            case .notDetermined: text = "未决定（还没问过，或询问被跳过）"
+            case .denied:        text = "已拒绝"
+            case .authorized:    text = "已允许"
+            case .provisional:   text = "临时允许（安静投递）"
+            case .ephemeral:     text = "临时"
+            @unknown default:    text = "未知"
+            }
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 3)
+        emit("  通知授权状态：\(text)")
+    }
+
+    /// 程序在前台时也把横幅放出来，不要静默吞掉
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func post(title: String, subtitle: String, body: String, thread: String = "") {
+        guard usable else {
+            scriptNotify(title: title, body: body)
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        if !subtitle.isEmpty { content.subtitle = subtitle }
+        content.body = body.isEmpty ? "（无正文）" : body
+        content.sound = .default
+        // 同一个发件人的通知归到一组，像聊天 App 那样叠起来
+        if !thread.isEmpty { content.threadIdentifier = thread }
+        content.userInfo = ["title": title, "subtitle": subtitle]
+
+        let req = UNNotificationRequest(identifier: UUID().uuidString,
+                                        content: content,
+                                        trigger: nil)
+        UNUserNotificationCenter.current().add(req) { err in
+            if let err = err {
+                emit("  ⚠ 通知未弹出：\(err.localizedDescription)")
+            }
+        }
+    }
 }
 
-func notify(title: String, body: String) {
-    let script = "display notification \(applescriptQuote(body)) with title \(applescriptQuote(title)) sound name \"default\""
+/// 没有 App 身份时的退路
+func scriptNotify(title: String, body: String) {
+    func quoted(_ s: String) -> String {
+        let escaped = s.replacingOccurrences(of: "\\", with: "\\\\")
+                       .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"" + escaped + "\""
+    }
+    let script = "display notification \(quoted(body)) with title \(quoted(title)) sound name \"default\""
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
     p.arguments = ["-e", script]
@@ -347,6 +442,9 @@ func notify(title: String, body: String) {
     }
 }
 
+func notify(title: String, body: String, subtitle: String = "", thread: String = "") {
+    Notifier.shared.post(title: title, subtitle: subtitle, body: body, thread: thread)
+}
 // MARK: - OBEX 报文解析
 
 func parseObexHeaders(_ bytes: [UInt8]) -> [(UInt8, [UInt8])] {
@@ -1045,7 +1143,8 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             emit("      \(m.subject)")
             store.remember(m.handle, stamp: m.datetime)
             store.saveMessage(m, notified: true)
-            notify(title: "新短信 · \(who)", body: m.subject)
+            let sub = (m.peerName.isEmpty || m.peerNumber.isEmpty) ? "" : m.peerNumber
+            notify(title: who, body: m.subject, subtitle: sub)
         }
         emit("  ✓ 已通知并入库，本地共 \(store.count("message")) 条")
         emit("")
@@ -1125,6 +1224,20 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
 // MARK: - 入口
 
 var args = Array(CommandLine.arguments.dropFirst())
+
+// 本地自检：弹一条测试通知，看通知的样子。不碰蓝牙
+if args.contains("--test-notify") {
+    emit("=== 通知自检 ===")
+    emit("通知身份：\(Bundle.main.bundleIdentifier ?? "（不是 App 包）")")
+    Notifier.shared.prepare(activate: true)
+    // 系统询问要用户点一下，给足时间；已授权时这一步立刻返回
+    Notifier.shared.waitForAuthorization(seconds: 45)
+    Notifier.shared.reportSettings()
+    notify(title: "张三", body: "这是一条测试短信，用来确认通知的样子。", subtitle: "138 0000 0000")
+    RunLoop.current.run(until: Date().addingTimeInterval(4.0))
+    emit("已发出测试通知")
+    exit(0)
+}
 
 // 本地自检：不连蓝牙，直接拿一份保存下来的列表验解析
 if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
@@ -1270,6 +1383,9 @@ args.removeAll { $0.hasPrefix("--") }
 emit("========================================")
 emit(" 鸿蒙短信 → Mac 同步")
 emit("========================================")
+
+// 通知身份：先问一次授权，之后新短信就能以 App 的名义弹出来
+Notifier.shared.prepare()
 
 guard let store = Store(path: DB_PATH) else { exit(1) }
 

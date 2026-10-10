@@ -6,3 +6,8 @@ __pycache__/
 *.bin
 *.app/
 *.cstemp*
+
+# 图标生成产物，由 build.sh 从 make_icon.swift 生成
+MakeIcon
+AppIcon.icns
+AppIcon.iconset/

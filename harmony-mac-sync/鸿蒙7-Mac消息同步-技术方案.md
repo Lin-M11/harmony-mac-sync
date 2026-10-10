@@ -962,11 +962,31 @@ $ HarmonySync --mns-selftest
 
 短信 11:20:01 到手机，11:20:23 弹通知——**延迟等于一个轮询周期**。整条 RFCOMM 会话保持 4 分钟未断，`MaxListCount` 参数手机直接接受，没有走整份列表的回退。
 
+**通知以 App 身份弹出（2026-10-10）**：客户端包成 `HarmonySync.app`（显示名「鸿蒙短信同步」，带图标），通知走 `UNUserNotificationCenter`，与通知中心里其它 App 是同一种形式：
+
+- 通知上显示 App 自己的名字与图标
+- 程序在前台时也照常放横幅（`willPresent` 返回 `[.banner, .list, .sound]`）
+- 同一个发件人的通知用 `threadIdentifier` 归到一组，像聊天 App 那样叠起来
+- 通知留在通知中心里，点右上角日期时间能翻到
+
+自检：双击 `run_notify_check.command`，或直接跑 `HarmonySync.app/Contents/MacOS/HarmonySync --test-notify`。自检会打印通知身份与授权状态：
+
+```
+[15:13:08] === 通知自检 ===
+[15:13:08] 通知身份：com.linlu.harmonysync
+[15:13:08]   ✓ 通知已授权
+[15:13:08]   通知授权状态：已允许
+[15:13:12] 已发出测试通知
+```
+
+首次运行需要一次授权：系统弹一次询问，点「允许」即可；若错过那次询问，到「系统设置 → 通知 → 鸿蒙短信同步」把开关打开，效果相同。
+
 - [x] 手机蓝牙配对成功，SDP 记录中出现 MAP / PBAP / HFP 服务
 - [x] OBEX Connect + SETPATH + GET listing 全链路通
 - [x] 列表解析正确，1024 条记录，中文不乱码
 - [x] 定时拉列表 → 比对 handle → 只对新增的弹通知并落库，闭环可用
 - [x] 新短信弹出 macOS 系统通知，正文取自列表的 `subject`
+- [x] 通知以 App 身份弹出：显示 App 名字与图标，留在通知中心，见上
 - [x] 短信落库，已见 handle 持久化，重启不重复通知
 - [x] 手机 MAS 记录读通，`SupportedFeatures` 声明支持「通知注册」（§7.1.1）
 - [ ] B7：正文请求写法确定，`x-bt/message` 能取回短信内容
@@ -994,9 +1014,9 @@ $ HarmonySync --mns-selftest
 | `harmony_sync.swift` | 增量同步：新短信 → 系统通知 + 落库；MNS 事件订阅 | 已跑通（增量同步） |
 | `obex_bodyprobe.swift` | 正文请求写法收敛 | 待跑 |
 
-**构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。新增探针只要在脚本的列表里加一行。
+**构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。图标由 `make_icon.swift` 用 CoreGraphics 画出十种尺寸再合成 `AppIcon.icns`，`build.sh` 会自动调用。新增探针只要在脚本的列表里加一行。
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：身份与字典原文 → 逐项判定，每个用例前各重启一次并等 12 秒 → 连续发布 → 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_notify_check.command`（通知自检：弹一条测试通知，打印通知身份与授权状态）、`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：身份与字典原文 → 逐项判定，每个用例前各重启一次并等 12 秒 → 连续发布 → 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
@@ -1014,6 +1034,7 @@ $ HarmonySync --mns-selftest
 | `--dump-sdp` | 不连蓝牙，把五种候选 SDP 字典按 plist 打出来 |
 | `--mns-selftest` | 不连蓝牙，用合成报文走一遍 MNS 入站处理（连接 / 事件报告 / 断开） |
 | `--mns-hold <秒>` | 只跑 MNS 服务端：发布 SDP 记录并守着，不建立 MAP 会话 |
+| `--test-notify` | 不连蓝牙，弹一条测试通知，打印通知身份与授权状态 |
 
 **本地数据**：`~/Library/Application Support/HarmonySync/messages.db`
 
@@ -1035,7 +1056,7 @@ $ HarmonySync --mns-selftest
 | R4 | 手机锁屏后 MAP 服务挂起 | 中 | 实测持续 4 分钟会话未断；长跑观察 |
 | R5 | 轮询耗电与流量 | 中 | 每轮只取最新 20 条，请求 46 字节；后续用 MNS 取代高频轮询（B1） |
 | R6 | macOS 蓝牙权限归因到启动进程 | 中 | 权限记在启动进程上，用 `.command` 双击启动即正常授权 |
-| R7 | 无 App 通知能力 | 高（体验缺失） | V1 定位为短信同步；见 §9.2 |
+| R7 | 通知的 App 身份 | ~~高~~ 已解除 | 客户端包成 `.app`，通知走 `UNUserNotificationCenter`，显示 App 名字与图标；见 §7.6 |
 | R8 | 通话 / 通讯录依赖 HFP、PBAP | 中 | 排在后续版本（B2 / B4），各自独立验证 |
 
 ---
