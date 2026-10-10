@@ -63,6 +63,12 @@ let MAS_UUID: [UInt8] = [
     0xB0, 0xDE, 0x08, 0x00, 0x20, 0x0C, 0x9A, 0x66,
 ]
 
+// MNS 的 128 位 UUID，只在自检里当样例用
+let MNS_UUID_128: [UInt8] = [
+    0xBB, 0x58, 0x2B, 0x41, 0x42, 0x0C, 0x11, 0xDB,
+    0xB0, 0xDE, 0x08, 0x00, 0x20, 0x0C, 0x9A, 0x66,
+]
+
 let FOLDER_PATH = ["telecom", "msg", "inbox"]
 let LISTING_TYPE = "x-bt/MAP-msg-listing"
 let NOTIF_REG_TYPE = "x-bt/MAP-NotificationRegistration"
@@ -501,6 +507,47 @@ func parseEventReport(_ xml: String) -> String {
     return parts.joined(separator: " ")
 }
 
+// MNS 侧对一包报文的判定结果。抽成纯逻辑，就能脱开蓝牙用合成报文自检。
+struct MnsDecision {
+    var code: UInt8
+    var lines: [String]
+    var event: String?
+    var close = false
+}
+
+func mnsDecide(_ packet: [UInt8], connID: inout [UInt8]) -> MnsDecision {
+    guard let op = packet.first else { return MnsDecision(code: 0xA0, lines: []) }
+    let headers = parseObexHeaders(packet)
+    let type = headers.first { $0.0 == HDR_TYPE }.map { String(decoding: $0.1, as: UTF8.self) } ?? ""
+    var body: [UInt8] = []
+    for (id, v) in headers where id == HDR_BODY || id == HDR_END_OF_BODY { body += v }
+    var appParams: [UInt8] = []
+    for (id, v) in headers where id == HDR_APPPARAMS { appParams += v }
+
+    switch op & 0x7F {
+    case 0x00:
+        // 手机若在 Connect 里给了会话号，后面就用它的
+        if let v = headers.first(where: { $0.0 == HDR_CONNID })?.1 { connID = v }
+        return MnsDecision(code: 0xA0, lines: ["← CONNECT（\(packet.count) 字节）  会话号 \(hex(connID))"])
+
+    case 0x02:
+        if type.lowercased().contains("map-event-report") {
+            let report = parseEventReport(String(decoding: body, as: UTF8.self))
+            var detail = report.isEmpty ? "（正文 \(body.count) 字节）" : report
+            if let masID = appParam(appParams, tag: 0x0F) { detail += "  MAS实例=\(masID)" }
+            return MnsDecision(code: 0xA0, lines: ["★ 事件报告：\(detail)"], event: detail)
+        }
+        return MnsDecision(code: 0xA0,
+                           lines: ["← PUT  Type=\(type.isEmpty ? "?" : type)  Body \(body.count) 字节"])
+
+    case 0x01:
+        return MnsDecision(code: 0xA0, lines: ["← DISCONNECT"], close: true)
+
+    default:
+        return MnsDecision(code: 0xA0, lines: ["← 未知操作 0x\(String(format: "%02X", op))"])
+    }
+}
+
 // 手机推事件时连上来的那条通道
 final class MnsChannel: NSObject, IOBluetoothRFCOMMChannelDelegate {
     let channel: IOBluetoothRFCOMMChannel
@@ -536,37 +583,11 @@ final class MnsChannel: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     func handle(_ packet: [UInt8]) {
-        guard let op = packet.first else { return }
-        let headers = parseObexHeaders(packet)
-        let type = headers.first { $0.0 == HDR_TYPE }.map { String(decoding: $0.1, as: UTF8.self) } ?? ""
-        var body: [UInt8] = []
-        for (id, v) in headers where id == HDR_BODY || id == HDR_END_OF_BODY { body += v }
-        var appParams: [UInt8] = []
-        for (id, v) in headers where id == HDR_APPPARAMS { appParams += v }
-
-        switch op & 0x7F {
-        case 0x00:
-            emit("  [MNS] ← CONNECT（\(packet.count) 字节）")
-            respond(0xA0)
-        case 0x02:
-            if type.lowercased().contains("map-event-report") {
-                let report = parseEventReport(String(decoding: body, as: UTF8.self))
-                var detail = report.isEmpty ? "（正文 \(body.count) 字节）" : report
-                if let masID = appParam(appParams, tag: 0x0F) { detail += "  MAS实例=\(masID)" }
-                emit("  [MNS] ★ 事件报告：\(detail)")
-                onEvent(detail)
-            } else {
-                emit("  [MNS] ← PUT  Type=\(type.isEmpty ? "?" : type)  Body \(body.count) 字节")
-            }
-            respond(0xA0)
-        case 0x01:
-            emit("  [MNS] ← DISCONNECT")
-            respond(0xA0)
-            _ = channel.close()
-        default:
-            emit("  [MNS] ← 未知操作 0x\(String(format: "%02X", op))")
-            respond(0xA0)
-        }
+        let d = mnsDecide(packet, connID: &connID)
+        for line in d.lines { emit("  [MNS] \(line)") }
+        respond(d.code)
+        if let e = d.event { onEvent(e) }
+        if d.close { _ = channel.close() }
     }
 
     func respond(_ code: UInt8) {
@@ -696,6 +717,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var notifSupported: Bool? = nil           // nil = 还没试出来
     var awaiting = false
     var pendingPoll: DispatchWorkItem?
+    var immediatePollPending = false
 
     init(store: Store, device: IOBluetoothDevice, channelID: BluetoothRFCOMMChannelID, once: Bool) {
         self.store = store
@@ -718,6 +740,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         pathIndex = 0
         listingTriedFallback = false
         needFullRetry = false
+        immediatePollPending = false
 
         if let ch = channel { _ = ch.close() }
         channel = nil
@@ -1016,25 +1039,33 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
         phase = .listing
-        emit("  下次轮询 \(Int(pollInterval)) 秒后")
+        var delay = pollInterval
+        if immediatePollPending {
+            immediatePollPending = false
+            delay = 0.5
+            emit("  事件曾在这一轮请求进行中到达，0.5 秒后补拉一次")
+        } else {
+            emit("  下次轮询 \(Int(pollInterval)) 秒后")
+        }
         let item = DispatchWorkItem {
             guard self.channel != nil else { self.openSession(); return }
             self.phase = .listing
             self.sendListing()
         }
         pendingPoll = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
     // 手机推来事件时立刻拉一次，不等下一个轮询周期
     func pollNow(_ reason: String) {
         guard !once else { return }
         guard channel != nil else { return }
-        guard !awaiting else {
-            emit("  [MNS] 事件已到，当前请求未完成，等它跑完")
+        // 有请求在路上时先记下来，等它跑完立刻补一次，而不是丢掉这次事件
+        guard !awaiting, phase == .listing else {
+            immediatePollPending = true
+            emit("  [MNS] 事件已到（\(reason)），当前是 \(phase) 阶段，跑完立刻补一次")
             return
         }
-        guard phase == .listing else { return }
         pendingPoll?.cancel()
         pendingPoll = nil
         emit("  [MNS] 事件触发（\(reason)），立即拉一次列表")
@@ -1094,6 +1125,41 @@ if args.contains("--dump-notif") {
         let p = notifRequest(variant: i, learnedConnID: learned)
         print("\(i) \(label)（\(p.count) 字节）")
         print("   \(hex(p))")
+    }
+    exit(0)
+}
+
+// 本地自检：用合成报文走一遍 MNS 入站处理，不碰蓝牙
+if args.contains("--mns-selftest") {
+    var connID: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+
+    // 手机连上 MNS 时发的 Connect（带 Target = MNS UUID）
+    var c1: [UInt8] = [0x10, 0x00, 0xFF, 0xFF]
+    c1 += lenHeader(HDR_TARGET, MNS_UUID_128)
+    let connect = frame(opcode: 0x80, body: c1)
+
+    // 手机推来的事件报告
+    let report = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <MAP-event-report version="1.0">
+    <event type="NewMessage" handle="0000000000000042" folder="telecom/msg/inbox" msg_type="SMS_GSM"/>
+    </MAP-event-report>
+    """
+    var c2: [UInt8] = []
+    c2 += lenHeader(HDR_TYPE, Array(EVENT_REPORT_TYPE.utf8))
+    c2 += lenHeader(HDR_APPPARAMS, [0x0F, 0x01, 0x01])
+    c2 += lenHeader(HDR_END_OF_BODY, Array(report.utf8))
+    let eventPut = frame(opcode: OBEX_PUT_FINAL, body: c2)
+
+    // 手机断开
+    let disconnect = frame(opcode: 0x81, body: [])
+
+    for (label, packet) in [("Connect", connect), ("事件报告", eventPut), ("断开", disconnect)] {
+        let d = mnsDecide(packet, connID: &connID)
+        print("== \(label)（\(packet.count) 字节）")
+        print("   应答 \(String(format: "0x%02X", d.code))   会话号 \(hex(connID))\(d.close ? "   关闭通道" : "")")
+        for l in d.lines { print("   \(l)") }
+        if let e = d.event { print("   → 触发同步：\(e)") }
     }
     exit(0)
 }

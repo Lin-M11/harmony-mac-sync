@@ -608,9 +608,13 @@ MAS 通道上发 `PUT`（`0x82`），头部三样：
 
 事件类型在正文的 `type` 属性里。解析按属性名扫描，属性名前锚一个空格——否则 `msg_type` 会被当成 `type`、`old_folder` 会被当成 `folder`。收到后应答 `0xA0` 并立刻拉一次收件箱列表，不等下一个轮询周期。
 
+入站侧对报文只做三件事：Connect 记下手机给的会话号（没给就用 `00 00 00 01`）并应答 `0xA0`；事件报告取正文 XML 与 AppParams 的 MAS 实例号，应答后触发同步；断开则关通道。这段判定抽成了纯函数，可以用 `--mns-selftest` 脱开蓝牙自检。
+
+事件若在上一轮请求还在路上时到达，会记下来、等这一轮结束立刻补一次拉取（0.5 秒后），而不是丢掉。
+
 **本地自检（2026-10-10，不连蓝牙）**
 
-订阅报文与事件解析都在客户端里留了可离线运行的入口，先在本机把编码固定下来：
+订阅报文、事件解析、以及 MNS 入站处理都在客户端里留了可离线运行的入口，先在本机把编码与判定固定下来：
 
 ```
 $ HarmonySync --dump-notif
@@ -620,9 +624,16 @@ $ HarmonySync --dump-notif
 $ HarmonySync --event ev2.xml
 正文 226 字
 解析结果：type=MessageDeleted handle=0000000000000005 folder=telecom/msg/inbox msg_type=SMS_CDMA
+
+$ HarmonySync --mns-selftest
+== Connect（26 字节）    应答 0xA0   会话号 00 00 00 01
+== 事件报告（226 字节）  应答 0xA0
+   ★ 事件报告：type=NewMessage handle=0000000000000042 folder=telecom/msg/inbox msg_type=SMS_GSM  MAS实例=1
+   → 触发同步：…
+== 断开（3 字节）        应答 0xA0   关闭通道
 ```
 
-第二个用例把属性顺序打乱并塞入 `old_folder` / `msg_type` 干扰项，解析结果仍然正确。
+事件解析那个用例把属性顺序打乱并塞入 `old_folder` / `msg_type` 干扰项，结果仍然正确；MNS 自检覆盖手机回连后的完整三步。
 
 **排障要点**
 
@@ -703,6 +714,7 @@ $ HarmonySync --event ev2.xml
 | `--parse <文件>` | 不连蓝牙，直接拿一份保存的列表验解析 |
 | `--event <文件>` | 不连蓝牙，拿一份事件报告正文验解析 |
 | `--dump-notif` | 不连蓝牙，打印五种订阅写法的报文字节 |
+| `--mns-selftest` | 不连蓝牙，用合成报文走一遍 MNS 入站处理（连接 / 事件报告 / 断开） |
 
 **本地数据**：`~/Library/Application Support/HarmonySync/messages.db`
 
