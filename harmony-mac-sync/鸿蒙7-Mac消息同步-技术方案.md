@@ -1008,26 +1008,28 @@ $ HarmonySync --mns-selftest
 
 ---
 
-### 7.7 原型清单
+### 7.7 交付物与使用
 
-| 程序 | 作用 | 状态 |
-|---|---|---|
-| `sdp_probe.swift` | SDP 查询手机蓝牙服务与通道号 | 已跑通 |
-| `phone_cap_probe.swift` | 展开手机 MAS 记录全部属性，读 `SupportedFeatures` | 已跑通，见 §7.1.1 |
-| `sdp_publish_probe.swift` | Mac 侧 SDP 记录发布，十二种字典写法各起一个进程 | 已跑通 |
-| `sdp_state_probe.swift` | 判定发布是否真建出记录（服务名 / attributes / remove 返回值 / 句柄对比 / C 层接口） | 已跑通 |
-| `sdp_final_probe.swift` | SDP 记录读回定论：读太早 / 读到旧记录 / 服务端实际存了什么 | 已跑通，见 §7.4 |
-| `sdp_ground_probe.swift` | 本机 SDP 服务器地面真相：状态 / 本机与手机查询对照 / 单进程全流程对照 / 最简与对照 / 数字元素写法 / 守候回连 | 已跑通，见 §7.4.1 |
-| `sdp_pub_diag.swift` | 发布判定：进程身份 / 字典原文 / 串口服务对照 / MAP MNS 各种写法 / 连续发布 / C 层接口，共 16 个用例 | 已跑通，见 §7.4 |
-| `obex_connect.swift` | OBEX Connect 握手 | 已跑通 |
-| `obex_pathprobe.swift` | SETPATH / GET 报文形式收敛 | 已跑通 |
-| `map_client.swift` | 拉取收件箱列表并解析 | 已跑通，1024 条 |
-| `harmony_sync.swift` | 增量同步：新短信 → 系统通知 + 落库；MNS 事件订阅 | 已跑通（增量同步） |
-| `obex_bodyprobe.swift` | 正文请求写法收敛 | 待跑 |
+| 文件 | 作用 |
+|---|---|
+| `harmony_sync.swift` | 客户端：增量同步 → 系统通知 → 落库 |
+| `make_icon.swift` | 图标生成：CoreGraphics 画十种尺寸，合成 `AppIcon.icns` |
+| `build.sh` | 编译客户端并组装成 `HarmonySync.app`（蓝牙用途说明 + 图标 + ad-hoc 签名） |
+| `run_sync.command` | 双击启动：增量同步，日志同步落盘 |
+| `run_fast_sync.command` | 双击启动：间隔 2 秒的秒级轮询，跑 4 分钟 |
+| `run_notify_check.command` | 双击运行：通知自检 |
+| `鸿蒙7-Mac消息同步-技术方案.md` | 本文档 |
 
-**构建**：`./build.sh` 一次性编译全部目标并各自组装成 `.app`（带蓝牙用途说明 + ad-hoc 签名）。图标由 `make_icon.swift` 用 CoreGraphics 画出十种尺寸再合成 `AppIcon.icns`，`build.sh` 会自动调用。新增探针只要在脚本的列表里加一行。
+**验证阶段的探针**（SDP 查询与发布、OBEX 报文、列表解析、手机能力，共 12 个 `.swift` 与 8 个 `.command`）用于逐项取证，取证结果已收进 §7.1–§7.4。它们不在当前工作树里，源码保留在 git 历史中：
 
-**启动方式**：在 Finder 里双击对应的 `.command` 文件——`run_notify_check.command`（通知自检：弹一条测试通知，打印通知身份与授权状态）、`run_mns_live.command`（重启蓝牙守护进程 + 本机 SDP 记录核对 + 事件订阅实测 + 秒级轮询，客户端跑 200 秒）、`run_pub_diag.command`（发布判定：身份与字典原文 → 逐项判定，每个用例前各重启一次并等 12 秒 → 连续发布 → 蓝牙守护进程日志）、`run_sdp_reset_check.command`（重启蓝牙守护进程 + 状态 / 最简 / 对照 / 完整 + 守候手机回连）、`run_fast_sync.command`（间隔 2 秒的秒级轮询）、`run_ground_check.command`（本机 SDP 地面真相 + 守候手机回连）、`run_mns_check.command`（SDP 记录读回定论 + 客户端持续跑 90 秒）、`run_sync.command`（增量同步）、`run_sdpprobe.command`（SDP 发布状态判定 + 字典写法扫描 + 客户端跑一轮）、`run_bodyprobe.command`（正文探测）、`run_client.command`（拉列表）。蓝牙权限记在启动进程上，双击时归到 Terminal，能正常弹窗授权。
+```bash
+git log --oneline -- harmony-mac-sync/sdp_pub_diag.swift    # 找到引入它的提交
+git checkout <提交> -- harmony-mac-sync/sdp_pub_diag.swift  # 取回单个文件
+```
+
+**构建**：`./build.sh` 编译客户端并组装成 `HarmonySync.app`（带蓝牙用途说明 + 图标 + ad-hoc 签名），末尾向 LaunchServices 登记。图标由 `make_icon.swift` 生成，`build.sh` 会自动调用。
+
+**启动方式**：双击 `HarmonySync.app` 即以后台形态常驻，不占 Dock 图标；想看日志就双击 `run_sync.command`（增量同步）或 `run_fast_sync.command`（秒级轮询，跑 4 分钟），日志同时落在 `/tmp/harmony_sync_result.txt`。通知自检双击 `run_notify_check.command`。蓝牙权限记在启动进程上：双击 `.command` 时归到 Terminal，双击 `HarmonySync.app` 时归到 App 自己（`Info.plist` 里已声明用途说明），两种方式都能正常弹窗授权。
 
 `harmony_sync.swift` 支持几个参数：
 
