@@ -1,36 +1,63 @@
 # harmony-mac-sync
 
-把鸿蒙手机的短信、通讯录和来电同步到 Mac。
+把鸿蒙手机的短信同步到 Mac：新短信即时弹系统通知，并落库留档。
 
 ## 原理
 
-Mac 作为蓝牙客户端，直连手机暴露的标准蓝牙服务：
+Mac 作为蓝牙客户端，直连手机暴露的标准蓝牙服务，手机端零安装、不依赖任何鸿蒙权限：
 
-| 通道 | 协议 | 用途 |
-|---|---|---|
-| 短信 | MAP | 读取短信与彩信，订阅新消息事件 |
-| 通讯录 | PBAP | 拉取通讯录与通话记录，反查来电姓名 |
-| 来电 | HFP | 读取来电号码（CLIP） |
-
-手机端零安装，不依赖任何鸿蒙权限。
+| 通道 | 协议 | 用途 | 版本 |
+|---|---|---|---|
+| 短信 | MAP | 读取短信、订阅新消息事件 | V1 |
+| 通讯录 | PBAP | 拉取通讯录与通话记录，反查来电姓名 | 规划中 |
+| 来电 | HFP | 读取来电号码（CLIP） | 规划中 |
 
 ## 当前状态
 
-蓝牙服务确认已完成：手机（华为 Pura 80 Pro / HarmonyOS 7）暴露 `SMS/MMS`、`OBEX Phonebook Access Server`、`Handsfree Gateway` 三类服务，通道成立。
+V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询收件箱 → 只对新增短信弹通知并落库。
 
-下一步：验证 OBEX 握手与 HFP 信令。
+- 新短信延迟 2–4 秒（`--interval 2`）
+- 通知以 App 身份弹出：显示「鸿蒙短信同步」与图标，留在通知中心里
+- 已见 handle 持久化，重启不重复通知
+- 手机端 SDP 记录、OBEX 全链路、列表解析、事件订阅的实测记录见技术方案 §7
 
 ## 目录
 
 | 路径 | 说明 |
 |---|---|
-| `harmony-mac-sync/鸿蒙7-Mac消息同步-技术方案.md` | 完整技术方案 |
-| `harmony-mac-sync/sdp_probe.swift` | SDP 服务探查工具 |
-| `harmony-mac-sync/sdp_probe_result.txt` | 探查原始输出 |
+| `harmony-mac-sync/鸿蒙7-Mac消息同步-技术方案.md` | 完整技术方案与验证记录 |
+| `harmony-mac-sync/harmony_sync.swift` | 客户端：增量同步 + 系统通知 + 落库 |
+| `harmony-mac-sync/make_icon.swift` | 图标生成（CoreGraphics → icns） |
+| `harmony-mac-sync/build.sh` | 一次性编译并打包全部目标 |
+| `harmony-mac-sync/sdp_*.swift`、`obex_*.swift`、`map_client.swift`、`phone_cap_probe.swift` | 各阶段探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力） |
+| `harmony-mac-sync/run_*.command` | 双击运行的验证脚本 |
+
+## 构建
+
+```bash
+cd harmony-mac-sync
+./build.sh
+```
+
+每个目标先编成 `xxx.bin`，再各自组装成 `xxx.app`（带蓝牙用途说明、图标与 ad-hoc 签名）。
+
+## 运行
+
+在 Finder 里双击 `harmony-mac-sync/run_fast_sync.command`，或直接跑：
+
+```bash
+./HarmonySync.app/Contents/MacOS/HarmonySync                     # 持续同步
+./HarmonySync.app/Contents/MacOS/HarmonySync --interval 2        # 秒级轮询
+./HarmonySync.app/Contents/MacOS/HarmonySync --test-notify       # 通知自检
+```
+
+首次运行需要在系统询问里允许蓝牙与通知。若错过那次询问，到「系统设置 → 通知」里把「鸿蒙短信同步」的开关打开即可。
+
+本地数据：`~/Library/Application Support/HarmonySync/messages.db`（`message` / `seen_handle` / `sync_state` 三张表）
 
 ## 能力边界
 
-**可同步**：短信、通讯录、通话记录、来电提醒
+**可同步**：短信
 
 **不可同步**：App 推送通知
 
@@ -38,23 +65,9 @@ Mac 作为蓝牙客户端，直连手机暴露的标准蓝牙服务：
 
 ## 环境
 
-- 手机：HarmonyOS 7
-- Mac：macOS 14+
-- 工具链：Swift 6 / IOBluetooth
-
-## 构建
-
-```bash
-cd harmony-mac-sync
-swiftc -O -framework IOBluetooth -o SDPProbe.app/Contents/MacOS/SDPProbe sdp_probe.swift
-codesign --force --deep --sign - SDPProbe.app
-```
-
-运行（首次需授予蓝牙权限）：
-
-```bash
-./SDPProbe.app/Contents/MacOS/SDPProbe <设备蓝牙地址>
-```
+- 手机：HarmonyOS 7（实测 华为 Pura 80 Pro）
+- Mac：macOS 12+
+- 工具链：Swift / IOBluetooth / SQLite3
 
 ## 授权说明
 

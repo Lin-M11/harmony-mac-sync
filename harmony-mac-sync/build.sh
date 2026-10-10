@@ -51,7 +51,8 @@ for t in $TARGETS; do
   echo "== $name"
   xcrun swiftc -O -framework IOBluetooth $=extra -o "$name.bin" "$src"
 
-  rm -rf "$name.app"
+  # 就地覆盖：包里只有可执行文件、图标、Info.plist 和签名，逐项重写即可，
+  # 不整目录删掉，省得跟删除保护打架，也不会留下半截目录
   mkdir -p "$name.app/Contents/MacOS" "$name.app/Contents/Resources"
   cp "$name.bin" "$name.app/Contents/MacOS/$name"
   [[ -f AppIcon.icns ]] && cp AppIcon.icns "$name.app/Contents/Resources/AppIcon.icns"
