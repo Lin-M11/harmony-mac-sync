@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light" data-page-node-id="oct2lXoSLnmxGsBaYn2Zbe">
-<head data-page-node-id="Q6AZ7nlOyEy9dgpVHGfUrk">
-<meta charset="utf-8" data-page-node-id="2y9aFR1PxrarRhzNd2EWjV">
-<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="5BoEGPbShZrim7AqnaUI6m">
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>鸿蒙短信同步 · 设计规范</title>
 <style>
   :root {
@@ -174,328 +174,328 @@
   code { font-family: var(--mono); font-size: 12px; background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 0 4px; }
 </style>
 </head>
-<body data-page-node-id="hMgo25LMnGAtSWneDVgiM1">
-<div class="sheet" data-page-node-id="CGSXcPlsm7nKntrS7TIDsg">
+<body>
+<div class="sheet">
 
-  <div class="sheet-head" data-page-node-id="xTlcsjbvMuY8EkLUlGqamf">
-    <div data-page-node-id="DHK7xP1SSzlgJTEVlEgBoX">
-      <h1 data-page-node-id="jVJj8ltmD2NCGaVziBmlss">鸿蒙短信同步 · 设计规范</h1>
-      <p data-page-node-id="ceKziIfK8wHsKQvwOYgeo5">原生 macOS 菜单栏应用。视觉世界：仪表。读得快是因为有序，不是因为响。</p>
+  <div class="sheet-head">
+    <div>
+      <h1>鸿蒙短信同步 · 设计规范</h1>
+      <p>原生 macOS 菜单栏应用。视觉世界：仪表。读得快是因为有序，不是因为响。</p>
     </div>
-    <div class="theme-switch" data-page-node-id="tGkkJghpHHgvHXoZh9RNOB">
-      <button type="button" data-set="light" aria-pressed="true" data-page-node-id="yg54AVaLLY4y1qRUCuoAwR">浅色</button>
-      <button type="button" data-set="dark" aria-pressed="false" data-page-node-id="Tn2y7SijhD1o3uwhSwIHfE">深色</button>
+    <div class="theme-switch">
+      <button type="button" data-set="light" aria-pressed="true">浅色</button>
+      <button type="button" data-set="dark" aria-pressed="false">深色</button>
     </div>
   </div>
 
-  <section data-page-node-id="pNgxpLuTAMRXH2DX1MvJbB">
-    <h2 data-page-node-id="SVjvj2i6hOgFP8OD3idoY2">母题：一条链路把两边连起来</h2>
-    <p class="lede" data-page-node-id="l2mc75vUTwuPV7qFag7cG4">左边是手机（窄、实心、内容源），右边是带底座的显示器（宽、描边、接收端），中间一条横条落在两者的共同中线上。这个标记同时承担三件事：App 图标、菜单栏图标、界面里的连接状态指示。链路通就是实线着主色，断了就是虚线转灰。</p>
-    <div class="mark-row" data-page-node-id="y9YLDtNwGE0UV4KPKrUGy0">
-      <div class="mark-box" data-page-node-id="EBgo3phS2wIzgk2HcGPwgC">
-        <span class="mark" data-page-node-id="5LTbGMAwYxDsmwE6ddxwT9">
-          <svg width="46" height="20" viewBox="0 0 512 222" fill="none" aria-label="链路通" data-page-node-id="HlrOtwXYP7TA6Vc36vjnOt">
-            <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor" data-page-node-id="AnCsEJjiqF9hAKbOlRFwCb"/>
-            <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor" data-page-node-id="3UJTMHyl0RhJw2giDLcC0j"/>
-            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22" data-page-node-id="euwOthvNUEeSLzf9968QMh"/>
-            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor" data-page-node-id="yPiXbWWxvHFCp5bWiJMQkw"/>
+  <section>
+    <h2>母题：一条链路把两边连起来</h2>
+    <p class="lede">左边是手机（窄、实心、内容源），右边是带底座的显示器（宽、描边、接收端），中间一条横条落在两者的共同中线上。这个标记同时承担三件事：App 图标、菜单栏图标、界面里的连接状态指示。链路通就是实线着主色，断了就是虚线转灰。</p>
+    <div class="mark-row">
+      <div class="mark-box">
+        <span class="mark">
+          <svg width="46" height="20" viewBox="0 0 512 222" fill="none" aria-label="链路通">
+            <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor"/>
+            <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor"/>
+            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
           </svg>
         </span>
-        <span data-page-node-id="7hUelqEJClP7cNcJ1ivgBf">链路通</span>
+        <span>链路通</span>
       </div>
-      <div class="mark-box" data-page-node-id="nRmB24LRsPAB51VzAtfbA9">
-        <span class="mark" style="color: var(--ink-3)" data-page-node-id="vYHcWzpFsP00vkToh1DLtX">
-          <svg width="46" height="20" viewBox="0 0 512 222" fill="none" aria-label="链路断" data-page-node-id="uz3bWJWpye8AekAXyBgHUp">
-            <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22" data-page-node-id="9tmnk6SxV9Is7eVgEjJ8tO"/>
-            <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24" data-page-node-id="QYuFqts63MpmkGjLFz5GIH"/>
-            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22" data-page-node-id="jPJr6mNAgETM2ub6b3tJKu"/>
-            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor" data-page-node-id="a5OaYKpPPOtBJvDAFsqNKb"/>
+      <div class="mark-box">
+        <span class="mark" style="color: var(--ink-3)">
+          <svg width="46" height="20" viewBox="0 0 512 222" fill="none" aria-label="链路断">
+            <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22"/>
+            <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24"/>
+            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
           </svg>
         </span>
-        <span data-page-node-id="sjAPNwx4r4ooTWyKdSyxX8">链路断</span>
+        <span>链路断</span>
       </div>
-      <div class="mark-box" data-page-node-id="BjiS3IbhA0FEzUm8AVZiNC">
-        <span class="mark" style="color: var(--ink)" data-page-node-id="wRnE3sTk6YCRLQg9kEXt1M">
-          <svg width="42" height="18" viewBox="0 0 512 222" fill="none" aria-label="菜单栏尺寸" data-page-node-id="WW1TwS9TDUlFZDPNX7LpCs">
-            <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor" data-page-node-id="3lYCUcnCj3lAXCilieZlha"/>
-            <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor" data-page-node-id="fam2irFGgKzilbdO36WdnO"/>
-            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22" data-page-node-id="nB6DuuIBbghqb4aXCY6mLK"/>
-            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor" data-page-node-id="CSCCMNYMLblZvX4UJDuaP2"/>
+      <div class="mark-box">
+        <span class="mark" style="color: var(--ink)">
+          <svg width="42" height="18" viewBox="0 0 512 222" fill="none" aria-label="菜单栏尺寸">
+            <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor"/>
+            <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor"/>
+            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
           </svg>
         </span>
-        <span data-page-node-id="1ZrDEXYqGt999BOLTk5wvi">菜单栏尺寸（18pt 模板图，单色随系统明暗反相）</span>
+        <span>菜单栏尺寸（18pt 模板图，单色随系统明暗反相）</span>
       </div>
     </div>
   </section>
 
-  <section data-page-node-id="EjR9uhpWgS6xvXA3TH09Xn">
-    <h2 data-page-node-id="HA7rNvNLVUkRVnNLzUWBk1">色板</h2>
-    <p class="lede" data-page-node-id="iVph4LY54hnCLjd4FZxP1V">克制用色。主色只出现在三处：连接状态、主操作、当前选中。中性灰一律带暖调，不用纯灰。下方对比度是对本底色的实测值。</p>
+  <section>
+    <h2>色板</h2>
+    <p class="lede">克制用色。主色只出现在三处：连接状态、主操作、当前选中。中性灰一律带暖调，不用纯灰。下方对比度是对本底色的实测值。</p>
 
-    <h3 data-page-node-id="wBF2ZxT8dF5KT60dui2IEm">底色与层次</h3>
-    <table data-page-node-id="oyKg61caeUZjFOOB9wEHA5">
-      <thead data-page-node-id="icFwt2rLCR6HKK8eK9Je0H"><tr data-page-node-id="DvSUYFszD5QRKdg1qIwOGs"><th style="width:44px" data-page-node-id="qiaW836Vp7qRhMJ8v5LUg5"></th><th data-page-node-id="O2veBf0LG31MPbz12Z8N9j">令牌</th><th data-page-node-id="nR7UzVvVdfL3EQRXtXD1ci">值</th><th data-page-node-id="lB8560r0ZIC79iTKHBNDMj">用途</th></tr></thead>
-      <tbody data-page-node-id="wUJRrXDV3iwF7wwQchTo3Q">
-        <tr data-page-node-id="uNiCDuVxvV0gvXYAByZSun"><td data-page-node-id="ApqccuGYhMM66DDWsyvKOP"><span class="swatch" style="background:var(--bg)" data-page-node-id="XhxGqDvB1uZjdSgAMGVeDO"></span></td><td data-page-node-id="BI8HvvzIwGuPZRozqAwGVP"><code data-page-node-id="TXZAFpl5oPyd24xRkAzLLc">--bg</code></td><td class="val" data-page-node-id="UkJocxNNW9jlBtyLR1mb0G">#FAF9F7 / #17181A</td><td data-page-node-id="A8uTCkIzCihJGEGfd6LPB6">窗口底、搜索框内底</td></tr>
-        <tr data-page-node-id="0CPkVxIBHipktDHgB9QR0V"><td data-page-node-id="WdI2zWgyDFgx3v4Z2JnImS"><span class="swatch" style="background:var(--surface)" data-page-node-id="uaO64J4ARxC775nKtujNqV"></span></td><td data-page-node-id="qufn0zDJ1MTeupFhQchaOq"><code data-page-node-id="hN7HHwrFJ91RC6zwZzU41B">--surface</code></td><td class="val" data-page-node-id="3tU4aI553fdX6vmMh5c4Ku">#FFFFFF / #1E2022</td><td data-page-node-id="eV1H3jVWlmAZ3VzGxZJGyx">内容面、面板、列表</td></tr>
-        <tr data-page-node-id="siuba5arQlXsYOW3qzUF6P"><td data-page-node-id="8ZOXKQhKfktCrWxYFgCLkq"><span class="swatch" style="background:var(--chrome)" data-page-node-id="cLR1FT3SSA7VeC8TmJUDW7"></span></td><td data-page-node-id="e0fGC0OVW2cDrWAAdeVwHw"><code data-page-node-id="YvmkDeSDWppXoJxl3f88hP">--chrome</code></td><td class="val" data-page-node-id="I8qdLwUfDqstHfoeBANXFU">#F3F1ED / #212325</td><td data-page-node-id="zueCnCcY3RiCvzBeB47eke">工具栏、面板头、次级面</td></tr>
-        <tr data-page-node-id="enG9geFXjhFUTqPkM6lAWm"><td data-page-node-id="Hm9CsRTrMUWbwAlCXk6kJd"><span class="swatch" style="background:var(--hover)" data-page-node-id="kHq79IlShxCHSV0OCqbMXX"></span></td><td data-page-node-id="dquFtrViXJ640x1zHFeM8D"><code data-page-node-id="aI2LfuholCL8k3y4idZGe2">--hover</code></td><td class="val" data-page-node-id="kmzeExSTNfxOoti3ka11Kn">#EFEDE8 / #2A2C2E</td><td data-page-node-id="HBU6hJiYs7tVuF7wGI9Vpr">列表行悬停</td></tr>
-        <tr data-page-node-id="pLXueUajZR9Nsfg83FBLKz"><td data-page-node-id="rxbGIExKCwVd2yLiwzH3Te"><span class="swatch" style="background:var(--line)" data-page-node-id="BgUcFEQASh4u8aFjPD1cTc"></span></td><td data-page-node-id="A6iYDpilfOxCu6eCsJDjSx"><code data-page-node-id="fOLsMEOA0lnMet1YdxZIWw">--line</code></td><td class="val" data-page-node-id="3vQKiCMAb2AhdDGNvOgiqK">#E4E1DA / #33363A</td><td data-page-node-id="CCShONmOa8nW74e88oskse">分隔线、描边</td></tr>
+    <h3>底色与层次</h3>
+    <table>
+      <thead><tr><th style="width:44px"></th><th>令牌</th><th>值</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:var(--bg)"></span></td><td><code>--bg</code></td><td class="val">#FAF9F7 / #17181A</td><td>窗口底、搜索框内底</td></tr>
+        <tr><td><span class="swatch" style="background:var(--surface)"></span></td><td><code>--surface</code></td><td class="val">#FFFFFF / #1E2022</td><td>内容面、面板、列表</td></tr>
+        <tr><td><span class="swatch" style="background:var(--chrome)"></span></td><td><code>--chrome</code></td><td class="val">#F3F1ED / #212325</td><td>工具栏、面板头、次级面</td></tr>
+        <tr><td><span class="swatch" style="background:var(--hover)"></span></td><td><code>--hover</code></td><td class="val">#EFEDE8 / #2A2C2E</td><td>列表行悬停</td></tr>
+        <tr><td><span class="swatch" style="background:var(--line)"></span></td><td><code>--line</code></td><td class="val">#E4E1DA / #33363A</td><td>分隔线、描边</td></tr>
       </tbody>
     </table>
 
-    <h3 data-page-node-id="SEGdeJMPw1e7YZSqBQAW6i">文字</h3>
-    <table data-page-node-id="cmMVSORmiTz1ZouhVwLqqZ">
-      <thead data-page-node-id="VmM1fvPeU9RPRZOhCw5xm9"><tr data-page-node-id="jUHtpeaO7OpREmGDmJ5CJn"><th style="width:44px" data-page-node-id="fqYKltxj09oPs1ghekndWA"></th><th data-page-node-id="fNYIyc0OY5hZz2MnMFNwoG">令牌</th><th data-page-node-id="E947vVC8t5QkMdal3DoyV6">值</th><th data-page-node-id="eCzYiFn0SfZ1EpLrGRSc2W">对比度</th><th data-page-node-id="s0eTjZEgTPPzFsvVyDt4TB">用途</th></tr></thead>
-      <tbody data-page-node-id="SbJ8dMUeWYSwIAXwWnqUw4">
-        <tr data-page-node-id="ELk7ORI2PLJKW3aPDfxGnv"><td data-page-node-id="wb60z9APupEeWBgNo5hhVF"><span class="swatch" style="background:var(--ink)" data-page-node-id="Z8u7hOGRS2hEnIkiPEpUdS"></span></td><td data-page-node-id="HqrEU0SCRqyw0fxn5kFSqE"><code data-page-node-id="EFj5biXBluNaDKEyWNxjeB">--ink</code></td><td class="val" data-page-node-id="wApEDuXtyVW17nihiV5PIZ">#1B1D1C / #F0F1EF</td><td class="ratio" data-page-node-id="1RcuAklN7TvtmzcXn6WE4N">15.6:1 / 15.9:1</td><td data-page-node-id="ynIHLDlSN8kVZJJuittgQ8">标题、发件人、开关标签</td></tr>
-        <tr data-page-node-id="WTYkpqsWxbA8mjmZwO1SZj"><td data-page-node-id="uU8nFrAHM1b0sLUL5Bp1AN"><span class="swatch" style="background:var(--ink-2)" data-page-node-id="9j6LGz3GHPv3U4X5GCufp8"></span></td><td data-page-node-id="tmoCDs2esbgfUUQ9FpvxOc"><code data-page-node-id="Jo2IHA2wQDcjdccu1CjwVw">--ink-2</code></td><td class="val" data-page-node-id="hNvG6fKT9mpQt9tYBOpL5s">#4A4F4C / #C3C6C3</td><td class="ratio" data-page-node-id="A79E3InGe0EZYcbDFvyEbI">7.9:1 / 10.3:1</td><td data-page-node-id="4dCU5kP4kU9eqMbpwdMSFv">短信正文、说明文字</td></tr>
-        <tr data-page-node-id="gQOMJDzgTbiERPu3GnV8iW"><td data-page-node-id="z3VSfSLeEiLIiBblvTptR4"><span class="swatch" style="background:var(--ink-3)" data-page-node-id="RmZQPjqfDhSv5m7TugeAgU"></span></td><td data-page-node-id="K5yMQSxabGaCfowm15lHNs"><code data-page-node-id="s9HlZaApfv3fbPWpApNa7S">--ink-3</code></td><td class="val" data-page-node-id="nQmg7omi8A5GAPyNCAsbCe">#636865 / #8E938F</td><td class="ratio" data-page-node-id="isZmQC9tzmBlIKIOPBwQ6O">5.4:1 / 5.7:1</td><td data-page-node-id="kKmVMXEFyPaNqxyyDnGi1w">时间、占位符、次级说明</td></tr>
+    <h3>文字</h3>
+    <table>
+      <thead><tr><th style="width:44px"></th><th>令牌</th><th>值</th><th>对比度</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:var(--ink)"></span></td><td><code>--ink</code></td><td class="val">#1B1D1C / #F0F1EF</td><td class="ratio">15.6:1 / 15.9:1</td><td>标题、发件人、开关标签</td></tr>
+        <tr><td><span class="swatch" style="background:var(--ink-2)"></span></td><td><code>--ink-2</code></td><td class="val">#4A4F4C / #C3C6C3</td><td class="ratio">7.9:1 / 10.3:1</td><td>短信正文、说明文字</td></tr>
+        <tr><td><span class="swatch" style="background:var(--ink-3)"></span></td><td><code>--ink-3</code></td><td class="val">#636865 / #8E938F</td><td class="ratio">5.4:1 / 5.7:1</td><td>时间、占位符、次级说明</td></tr>
       </tbody>
     </table>
 
-    <h3 data-page-node-id="mpBPTExfPryGYxSoS7asWv">语义色</h3>
-    <table data-page-node-id="cStkMCRRhTwjwsoxKSPna0">
-      <thead data-page-node-id="NdcLf7dxxsI4AkTrQQon09"><tr data-page-node-id="fEyRIKXT2SPTYNNHrZxHY2"><th style="width:44px" data-page-node-id="z56bUw0HtyKgoMCyHFfmtP"></th><th data-page-node-id="NPPehXy2xJPVHvfqmuQ48R">令牌</th><th data-page-node-id="q3XBTNFnMuNoH9C1lnGvTB">值</th><th data-page-node-id="NBgf97FxzTWpDBgsOiNVrY">对比度</th><th data-page-node-id="5NC4Bx1flHRExGfF1ZxBSK">用途</th></tr></thead>
-      <tbody data-page-node-id="1FMy9U7tx7g3l5mgIzPGAD">
-        <tr data-page-node-id="yO8JNBFngxsEFrAp24FY6t"><td data-page-node-id="bfD5QaHMIztKsfpnlJQWAE"><span class="swatch" style="background:var(--accent)" data-page-node-id="OZORJpPHCh8w95ZGTByFXc"></span></td><td data-page-node-id="feI0tmYNlHOB7r4DxBLCt0"><code data-page-node-id="jrmpp5qhSUghGc7nHlJDFC">--accent</code></td><td class="val" data-page-node-id="AxJISuFAdGZvr8vKx5AEID">#1D6B54 / #4FBF9A</td><td class="ratio" data-page-node-id="EtnQjq74GrBEe3aZqWfiqD">6.1:1 / 7.8:1</td><td data-page-node-id="bfGOJfKWMqRXIosDF0Zs7T">链路通、主按钮、验证码</td></tr>
-        <tr data-page-node-id="8497wiZvLLAGN9kHbm7vIC"><td data-page-node-id="Krr3k00PILWOMMyMZ5OwBk"><span class="swatch" style="background:var(--accent-soft)" data-page-node-id="aHDcVS3e5azz3Le99YzV4y"></span></td><td data-page-node-id="yhcA1QKitN8ZTfdHHwI9H1"><code data-page-node-id="FaqAESjEDl52WoiD2IRmDM">--accent-soft</code></td><td class="val" data-page-node-id="ALcFHjnb6pRZrWCcAFf5xM">#E3F0EB / #1C3A32</td><td class="ratio" data-page-node-id="julD4wOglvm5nYdVY37ZKP">不适用</td><td data-page-node-id="1PBPEW7f8mRgygmDWA6ezE">选中行底、验证码底</td></tr>
-        <tr data-page-node-id="Hk9C8nf6TSzTrYCD688gB3"><td data-page-node-id="mCIpOR8wKPslHFhJ6H1ETZ"><span class="swatch" style="background:var(--wait)" data-page-node-id="wpFAk07regjNwJnmMEH5Ct"></span></td><td data-page-node-id="FyvhF8fAGmsnPoprXgCkqj"><code data-page-node-id="b4L3Uian8n20ssjM9IgKMx">--wait</code></td><td class="val" data-page-node-id="TR0wplFB6nAcG6DeZIy5AY">#8A6A1F / #D8AC53</td><td class="ratio" data-page-node-id="UXbToCn4JpwoGCCONoLLTq">4.8:1 / 8.4:1</td><td data-page-node-id="UWqyz3Iz68WUG3sU0DTCTx">连接中、同步中</td></tr>
-        <tr data-page-node-id="Wa28bPgrx5B77SvBqyvsuz"><td data-page-node-id="DGxSVusXi5oFvXAuqplcem"><span class="swatch" style="background:var(--danger)" data-page-node-id="oM7r4UHUv0CZ28ZQIyKxUc"></span></td><td data-page-node-id="yvu5VOqgEB07n1WUJuFhSi"><code data-page-node-id="CDhYQHZeDKlIXOrQSPv5ST">--danger</code></td><td class="val" data-page-node-id="ydIQO9bwrj1s8npqrok5uN">#A93B36 / #E0776F</td><td class="ratio" data-page-node-id="SmNDXe9cOJyQHfGiXkEr9z">5.9:1 / 6.0:1</td><td data-page-node-id="0GBr64tReOucxbIFeR9Tnt">连接失败、同步出错</td></tr>
+    <h3>语义色</h3>
+    <table>
+      <thead><tr><th style="width:44px"></th><th>令牌</th><th>值</th><th>对比度</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:var(--accent)"></span></td><td><code>--accent</code></td><td class="val">#1D6B54 / #4FBF9A</td><td class="ratio">6.1:1 / 7.8:1</td><td>链路通、主按钮、验证码</td></tr>
+        <tr><td><span class="swatch" style="background:var(--accent-soft)"></span></td><td><code>--accent-soft</code></td><td class="val">#E3F0EB / #1C3A32</td><td class="ratio">不适用</td><td>选中行底、验证码底</td></tr>
+        <tr><td><span class="swatch" style="background:var(--wait)"></span></td><td><code>--wait</code></td><td class="val">#8A6A1F / #D8AC53</td><td class="ratio">4.8:1 / 8.4:1</td><td>连接中、同步中</td></tr>
+        <tr><td><span class="swatch" style="background:var(--danger)"></span></td><td><code>--danger</code></td><td class="val">#A93B36 / #E0776F</td><td class="ratio">5.9:1 / 6.0:1</td><td>连接失败、同步出错</td></tr>
       </tbody>
     </table>
   </section>
 
-  <section data-page-node-id="NAshGFmcC4XPeYnOTCYqsr">
-    <h2 data-page-node-id="y4NLqWppGHNtwU4rkp9GKL">字阶与节奏</h2>
-    <p class="lede" data-page-node-id="FMt5gLslreW5GzDDMdGOye">单一字族，用系统字体。这是原生应用该有的样子，也是 Operate 模式下的正解。固定字阶，不用流式缩放。数字一律用等宽数字，好让时间戳竖着对齐。</p>
-    <table data-page-node-id="vh4r8Gtq3qzkCQ4xbYpyad">
-      <thead data-page-node-id="3iclA2U5Q0M4JsLh6k7QS8"><tr data-page-node-id="48OMsv7fsaOqKCwWsJutFd"><th data-page-node-id="2oG8ydXFriBzqnX7d1zPtQ">层级</th><th data-page-node-id="8QhPAdZtSd1EpmhF5HDHPp">字号 / 字重</th><th data-page-node-id="u4pjHpn67il7cHAIZdBhHE">用途</th></tr></thead>
-      <tbody data-page-node-id="8JgQm6xJ4hi9sBiqSCjg6N">
-        <tr data-page-node-id="DF5Nu0yjh2u09slwQVg8KK"><td style="font-size:18px;font-weight:500" data-page-node-id="axdaD8DZw2pcxnWhXtHLZY">窗口标题</td><td class="val" data-page-node-id="L7KjHPHB7k1398iWOVNtHU">18px / 500</td><td data-page-node-id="poX4hyDC7qE44wFHv9CamQ">「消息记录」窗口标题</td></tr>
-        <tr data-page-node-id="DhMV53NgJZVZBHTkgMEla4"><td style="font-size:16px;font-weight:500" data-page-node-id="rX0tihk3dUqCJ7f9rcxrCC">区块标题</td><td class="val" data-page-node-id="wQhJpF8GpxjCt6Uy2DepDC">16px / 500</td><td data-page-node-id="kS4ZHINIetNkgmn5X77R3V">面板分区、日期分组</td></tr>
-        <tr data-page-node-id="zIo8XsQ724MGDzTgJQ1Nyb"><td style="font-size:14px;font-weight:400" data-page-node-id="8ZTRLJPvkauuXD8CFwse7p">正文</td><td class="val" data-page-node-id="J0Y0ACwwBCGwZaIMkYwqEH">14px / 400</td><td data-page-node-id="x3ZqKDjEYCCJvfyBG0C07e">短信正文、说明</td></tr>
-        <tr data-page-node-id="EmqWslRfPyHEP614NWUula"><td style="font-size:14px;font-weight:500" data-page-node-id="5WIFkfbhcQMLH8BcSKgGTA">强调正文</td><td class="val" data-page-node-id="X8qjt7RC0Ho4QjTES5ZvsK">14px / 500</td><td data-page-node-id="2rGAT9oMKjTejfevVPN0Ep">发件人、开关标签</td></tr>
-        <tr data-page-node-id="7HktWZdvTLvzw3D9LeySXK"><td style="font-size:12px;font-weight:400;color:var(--ink-3)" data-page-node-id="MULzBNaondELXRzvbwkGTO">辅助</td><td class="val" data-page-node-id="UA4r9BIBpruf6kKekpKDA8">12px / 400</td><td data-page-node-id="VBd5hvzznuJ3w9EdjnPksj">时间、状态、占位符</td></tr>
+  <section>
+    <h2>字阶与节奏</h2>
+    <p class="lede">单一字族，用系统字体。这是原生应用该有的样子，也是 Operate 模式下的正解。固定字阶，不用流式缩放。数字一律用等宽数字，好让时间戳竖着对齐。</p>
+    <table>
+      <thead><tr><th>层级</th><th>字号 / 字重</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td style="font-size:18px;font-weight:500">窗口标题</td><td class="val">18px / 500</td><td>「消息记录」窗口标题</td></tr>
+        <tr><td style="font-size:16px;font-weight:500">区块标题</td><td class="val">16px / 500</td><td>面板分区、日期分组</td></tr>
+        <tr><td style="font-size:14px;font-weight:400">正文</td><td class="val">14px / 400</td><td>短信正文、说明</td></tr>
+        <tr><td style="font-size:14px;font-weight:500">强调正文</td><td class="val">14px / 500</td><td>发件人、开关标签</td></tr>
+        <tr><td style="font-size:12px;font-weight:400;color:var(--ink-3)">辅助</td><td class="val">12px / 400</td><td>时间、状态、占位符</td></tr>
       </tbody>
     </table>
 
-    <h3 data-page-node-id="ZDDQoxVATw67GWHIwc03fx">间距与圆角</h3>
-    <p class="lede" data-page-node-id="CeINyRwNT1KbejxgLFRzYB">间距按 4 的倍数：<code data-page-node-id="99TcfXLRCGgfn7U1AUPaJl">4 / 8 / 12 / 16 / 24 / 32</code>。圆角三档：控件 <code data-page-node-id="8LQlzQt1NeM33XsPhC3qBg">6px</code>、列表行 <code data-page-node-id="ZXYGdGm8JuTMFZS4iNR8NF">10px</code>、面板 <code data-page-node-id="OugkFdNEfwR4sUab5pTI6V">14px</code>。分组内紧、组间松；标题上方的留白多于下方。</p>
+    <h3>间距与圆角</h3>
+    <p class="lede">间距按 4 的倍数：<code>4 / 8 / 12 / 16 / 24 / 32</code>。圆角三档：控件 <code>6px</code>、列表行 <code>10px</code>、面板 <code>14px</code>。分组内紧、组间松；标题上方的留白多于下方。</p>
   </section>
 
-  <section data-page-node-id="fYRiaGgFHTvRhIGfmByzzM">
-    <h2 data-page-node-id="S5caVW8MADlBj8qhiugDbF">菜单栏面板</h2>
-    <p class="lede" data-page-node-id="WZ4DDY8O1nEzGo7HepFNuZ">点菜单栏图标弹出的面板。三段：手机与链路状态、两个监听开关、最近两条短信。关掉「短信监听」即断开蓝牙连接，所以它和连接状态放在同一段里，因果关系一眼可见。</p>
+  <section>
+    <h2>菜单栏面板</h2>
+    <p class="lede">点菜单栏图标弹出的面板。三段：手机与链路状态、两个监听开关、最近两条短信。关掉「短信监听」即断开蓝牙连接，所以它和连接状态放在同一段里，因果关系一眼可见。</p>
 
-    <div class="specimen" data-page-node-id="IcyxL8DiaHPQhAeVYSEOk0">
-      <div data-page-node-id="pOC8sg4e2KogMk2h5D1ffM">
-        <div class="specimen-label" data-page-node-id="VaMBCrwBdWr1G5IPgP5X8C">已连接 · 两个监听都开着</div>
-        <div class="panel" data-page-node-id="U5rSRyXwOqplQmdQTKykHI">
-          <div class="panel-head" data-page-node-id="NBGyDOPJcGwj8LW3CiUnD1">
-            <span class="mark" style="color:var(--accent)" data-page-node-id="thT06PhX0EqFnM2d1llUNq">
-              <svg width="22" height="10" viewBox="0 0 512 222" fill="none" data-page-node-id="Kr1kvMv8FtMYdPzwovF2oU">
-                <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor" data-page-node-id="h3jYsnbAoapnQdH1TDCxp7"/>
-                <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor" data-page-node-id="qS1Pf5AQM7UC6YV27hqV1z"/>
-                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22" data-page-node-id="7CKTXL9U9IqdDJFrpHKqwB"/>
-                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor" data-page-node-id="R3rOb15uAjQtc74OUymhLv"/>
+    <div class="specimen">
+      <div>
+        <div class="specimen-label">已连接 · 两个监听都开着</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="mark" style="color:var(--accent)">
+              <svg width="22" height="10" viewBox="0 0 512 222" fill="none">
+                <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor"/>
+                <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor"/>
+                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
               </svg>
             </span>
-            <span class="grow" data-page-node-id="aaRDPdCPglQ2TDU8D78rO6">
-              <span class="who" data-page-node-id="B2ZouEZaIN4PZkUp5NivlI">HUAWEI Pura 80 Pro</span><br data-page-node-id="4cMRDTEq1r0LELwUBiYdFY">
-              <span class="sub" data-page-node-id="Ppsyb2OFYcBNDP9Mt5RpTz">链路已建立 · 信号 4/5</span>
+            <span class="grow">
+              <span class="who">HUAWEI Pura 80 Pro</span><br>
+              <span class="sub">链路已建立 · 信号 4/5</span>
             </span>
-            <span class="state on" data-page-node-id="RRCR9UVAilYjlCnUUmrJ7S"><i data-page-node-id="JAQbdDYHYIb6q10ynD9K8j"></i>已连接</span>
+            <span class="state on"><i></i>已连接</span>
           </div>
-          <div class="panel-body" data-page-node-id="wO85ACcyXyZbyN2bP2FmVY">
-            <div class="row" data-page-node-id="ZBIv3Wq2gss4DT1xHto0RK">
-              <span class="grow" data-page-node-id="ZYsytT5xsPSHgxvw19zMFJ"><span class="label" data-page-node-id="KkJUALeEqDVr9Jr5MNJHm9">短信监听</span><br data-page-node-id="BVBz3mUwS4nLB9lgD40gUc"><span class="hint" data-page-node-id="AjpXya9XUgcFEfLA5Vc3ZY">新短信到达即同步并弹通知</span></span>
-              <span class="sw" data-on="true" data-page-node-id="xwZggHWGvw1rIA8KkoTtzY"></span>
+          <div class="panel-body">
+            <div class="row">
+              <span class="grow"><span class="label">短信监听</span><br><span class="hint">新短信到达即同步并弹通知</span></span>
+              <span class="sw" data-on="true"></span>
             </div>
-            <div class="row" data-page-node-id="9bngVM1fophx0mbb4hQvKG">
-              <span class="grow" data-page-node-id="26oe2uf6e9SciHqZ21vYtU"><span class="label" data-page-node-id="w5fNj9322PRbJU00EfSUFT">通话监听</span><br data-page-node-id="MEtuR6ca5PuHEijEyIADNO"><span class="hint" data-page-node-id="8ImXBe3qMCCMmkhLkZz71f">来电提醒与在 Mac 上接听</span></span>
-              <span class="sw" data-on="true" data-page-node-id="8Skou961KDch7deItawurZ"></span>
+            <div class="row">
+              <span class="grow"><span class="label">通话监听</span><br><span class="hint">来电提醒与在 Mac 上接听</span></span>
+              <span class="sw" data-on="true"></span>
             </div>
           </div>
-          <div class="panel-body" style="border-top:1px solid var(--line)" data-page-node-id="lLLmQxDkHLQppgBeWmMfy7">
-            <div class="row" style="padding-top:10px;padding-bottom:4px" data-page-node-id="L6q3bZQuqFJS8l3D4sPB4I">
-              <span class="grow hint" data-page-node-id="vETfKCx7dCD6OWLg1B80Ba">最近收到</span>
-              <span class="hint" data-page-node-id="kMa4l3pNJOEn4H8ExHRk5X">2 条</span>
+          <div class="panel-body" style="border-top:1px solid var(--line)">
+            <div class="row" style="padding-top:10px;padding-bottom:4px">
+              <span class="grow hint">最近收到</span>
+              <span class="hint">2 条</span>
             </div>
-            <div class="row" style="align-items:flex-start" data-page-node-id="gFzxRCll5y32ES6cA4cobz">
-              <span class="grow" data-page-node-id="YHljgYDMlsuXZcgbzeEByd">
-                <span class="label" data-page-node-id="q4RA2wswn28ebEojFvPCb7">美团</span><br data-page-node-id="5mmxDqrl30Wp8HqTRiH1oa">
-                <span class="hint" data-page-node-id="OVDC2AxmoiMG4IDFlfPhwC">您的验证码是 847291，5 分钟内有效</span>
+            <div class="row" style="align-items:flex-start">
+              <span class="grow">
+                <span class="label">美团</span><br>
+                <span class="hint">您的验证码是 847291，5 分钟内有效</span>
               </span>
-              <span class="hint" style="font-variant-numeric:tabular-nums" data-page-node-id="G6KjvAuX2wODEv2hgQXnl6">10:42</span>
+              <span class="hint" style="font-variant-numeric:tabular-nums">10:42</span>
             </div>
-            <div class="row" style="align-items:flex-start" data-page-node-id="TeNrGDlcy4Niz9JbpqUWMY">
-              <span class="grow" data-page-node-id="yzI2rsIiud9WfurrmYS0uU">
-                <span class="label" data-page-node-id="CODqieO8FQyBK81RE2ST1X">招商银行</span><br data-page-node-id="N6lSj1IauWzOKi9Y410nVG">
-                <span class="hint" data-page-node-id="JqeApTWRtwMWqqHsXxN7RH">您尾号 6688 账户入账 3,200.00 元</span>
+            <div class="row" style="align-items:flex-start">
+              <span class="grow">
+                <span class="label">招商银行</span><br>
+                <span class="hint">您尾号 6688 账户入账 3,200.00 元</span>
               </span>
-              <span class="hint" style="font-variant-numeric:tabular-nums" data-page-node-id="nBZXDqw86wD2CRuAU9MF3p">09:15</span>
+              <span class="hint" style="font-variant-numeric:tabular-nums">09:15</span>
             </div>
           </div>
-          <div class="panel-foot" data-page-node-id="e7fg66zB59bp9dg4mZiT5k">
-            <div style="display:flex;gap:6px" data-page-node-id="Fw3WiAdMm8JI0PFwzMxwmX">
-              <button class="btn primary" style="flex:1" data-page-node-id="YI3evMgkbP0fT4xVDS3cu7">打开消息记录</button>
-              <button class="btn" data-page-node-id="7UaLMEqhbQWg5VpPZeUbzd">断开</button>
+          <div class="panel-foot">
+            <div style="display:flex;gap:6px">
+              <button class="btn primary" style="flex:1">打开消息记录</button>
+              <button class="btn">断开</button>
             </div>
           </div>
         </div>
       </div>
 
-      <div data-page-node-id="OuyXKQYvRGz8GWpFALADnc">
-        <div class="specimen-label" data-page-node-id="A7Vm9a43HTvYyq5RiTZZUb">未连接 · 首次使用</div>
-        <div class="panel" data-page-node-id="vNxBvDGKK0jHyhvi6f7A1B">
-          <div class="panel-head" data-page-node-id="qIiDlfeAerOvdEfc36bGrw">
-            <span class="mark" style="color:var(--ink-3)" data-page-node-id="XuouTaWAwqCxo3GqEvcGs9">
-              <svg width="22" height="10" viewBox="0 0 512 222" fill="none" data-page-node-id="RQjYzHBjPHzeyODWnCC2Hb">
-                <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22" data-page-node-id="AbpGorUgukTgyGviDrfiK6"/>
-                <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24" data-page-node-id="8mjpLZuigaz0YqGjlAQr37"/>
-                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22" data-page-node-id="s7A0fphTVmZkpB7XPornju"/>
-                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor" data-page-node-id="xN1YRZs0EIoFaE1W9PIaDU"/>
+      <div>
+        <div class="specimen-label">未连接 · 首次使用</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="mark" style="color:var(--ink-3)">
+              <svg width="22" height="10" viewBox="0 0 512 222" fill="none">
+                <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22"/>
+                <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24"/>
+                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
               </svg>
             </span>
-            <span class="grow" data-page-node-id="gVFrW0t4qYhTxi1bTL21f0">
-              <span class="who" data-page-node-id="EYRCtCfwCErCVhKDjHBFSF">尚未连接手机</span><br data-page-node-id="mTcOLT4fHmLkgH98Dpyi1C">
-              <span class="sub" data-page-node-id="13pcajFjE97oixQ8XfVzT3">连上后短信会自动同步过来</span>
+            <span class="grow">
+              <span class="who">尚未连接手机</span><br>
+              <span class="sub">连上后短信会自动同步过来</span>
             </span>
           </div>
-          <div class="panel-body" data-page-node-id="rJ4I7ObtBqxSEanpDJ9LQP">
-            <div class="row" data-page-node-id="GEAFrXXWQ8zyEZv8iswZrv">
-              <span class="grow" data-page-node-id="ldxfus7yRXMQ1ndL12Anuf"><span class="label" data-page-node-id="6sIYY00Qgv4pvFRdDYofKt">短信监听</span><br data-page-node-id="EauxS4dLdQjaX7Ge21i5AN"><span class="hint" data-page-node-id="bli5pULqCEpGn7BzmHOTBq">连接手机后才能打开</span></span>
-              <span class="sw" data-off="true" data-page-node-id="NHcLaPC0FGxqEOrt4p8ZDa"></span>
+          <div class="panel-body">
+            <div class="row">
+              <span class="grow"><span class="label">短信监听</span><br><span class="hint">连接手机后才能打开</span></span>
+              <span class="sw" data-off="true"></span>
             </div>
-            <div class="row" data-page-node-id="HPNnWLL78kWS056BoFhgnI">
-              <span class="grow" data-page-node-id="Q9liAzYNBqqXRB8AHoKw7Y"><span class="label" data-page-node-id="WUANAHrvYph2TNt9SMU1iZ">通话监听</span><br data-page-node-id="ntuCVGzXtAbI7hjMKR1Le0"><span class="hint" data-page-node-id="fYVYN071MOykOUPs6DWBXg">连接手机后才能打开</span></span>
-              <span class="sw" data-off="true" data-page-node-id="ks0Mqdq0pwrsi2QIbTxsco"></span>
+            <div class="row">
+              <span class="grow"><span class="label">通话监听</span><br><span class="hint">连接手机后才能打开</span></span>
+              <span class="sw" data-off="true"></span>
             </div>
           </div>
-          <div class="panel-foot" data-page-node-id="BoLPaN27Acw3hY3Bv08g2H">
-            <button class="btn primary" style="width:100%" data-page-node-id="8tW4JxqZJCpeGAgBkCqsus">连接手机…</button>
+          <div class="panel-foot">
+            <button class="btn primary" style="width:100%">连接手机…</button>
           </div>
         </div>
       </div>
 
-      <div data-page-node-id="5ami5y6lkmAAPYvsfPnnSw">
-        <div class="specimen-label" data-page-node-id="RwqyjJFqzGO1oL4smYDWLs">连接中</div>
-        <div class="panel" data-page-node-id="vKkKG5SZVNSOf50ZEBoMOD">
-          <div class="panel-head" data-page-node-id="1gOEIyb3159GnHlzyt7Kj3">
-            <span class="grow" data-page-node-id="g41B01UpDPItOBnFXXDhl2">
-              <span class="who" data-page-node-id="lqYJYo1QueJPpGLGgkZTbe">HUAWEI Pura 80 Pro</span><br data-page-node-id="uVE35Gde2wlYcbNv5X8Pjo">
-              <span class="sub" data-page-node-id="gUl7pEzbkIMvjd5WIQFPWn">正在建立链路…</span>
+      <div>
+        <div class="specimen-label">连接中</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="grow">
+              <span class="who">HUAWEI Pura 80 Pro</span><br>
+              <span class="sub">正在建立链路…</span>
             </span>
-            <span class="state wait" data-page-node-id="QeRXeRcbXEnDiGaGiPM2PE"><i data-page-node-id="wvWGbuRq4u62qT3t00XXls"></i>连接中</span>
+            <span class="state wait"><i></i>连接中</span>
           </div>
-          <div class="panel-body" data-page-node-id="7PM9m7PQwaDcVDh2SzZXDI">
-            <div class="row" data-page-node-id="b04hmZ8LxvCRP3MRVguFPt"><span class="grow" style="height:14px;background:var(--chrome);border-radius:var(--r-ctl);max-width:150px" data-page-node-id="2EQFdDF2yVJXgQVlBOrFBS"></span></div>
-            <div class="row" data-page-node-id="glBnDTK8Lu5PHRUXHep2KV"><span class="grow" style="height:14px;background:var(--chrome);border-radius:var(--r-ctl);max-width:110px" data-page-node-id="dZnyinOyO2p1YhDdOj9TQd"></span></div>
+          <div class="panel-body">
+            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:var(--r-ctl);max-width:150px"></span></div>
+            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:var(--r-ctl);max-width:110px"></span></div>
           </div>
-          <div class="panel-foot" data-page-node-id="s6b14wwsqycqczsnyYZMS0">
-            <button class="btn" style="width:100%" disabled data-page-node-id="yDQhIoGg8oZhicnIlH4Hp9">连接手机…</button>
+          <div class="panel-foot">
+            <button class="btn" style="width:100%" disabled>连接手机…</button>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section data-page-node-id="PnaVCtpwVTFRsTezQiKEzQ">
-    <h2 data-page-node-id="lfQwf9JvOuTL5aahHnFcMw">消息记录窗口</h2>
-    <p class="lede" data-page-node-id="b3SY3n5O7MBtCxY9WMRV8F">独立窗口，从面板打开。搜索框常驻在工具栏，日期筛选做成胶囊。列表按天分组，每天一个小标题。验证码自动认出来，点一下复制。</p>
+  <section>
+    <h2>消息记录窗口</h2>
+    <p class="lede">独立窗口，从面板打开。搜索框常驻在工具栏，日期筛选做成胶囊。列表按天分组，每天一个小标题。验证码自动认出来，点一下复制。</p>
 
-    <div class="specimen" data-page-node-id="xwZhcxjb9KjuOK7tzZTuES">
-      <div class="win" data-page-node-id="hkMcg9xXebYvzGTUEZWlzc">
-        <div class="win-bar" data-page-node-id="DdB0KJjfoSc1YX7BjiiCS8">
-          <span class="field" data-page-node-id="iltBdk42tRxBZyUpDmQdf5">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="color:var(--ink-3)" data-page-node-id="cp3YrCAsH9QdBiqJR7ELwS"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6" data-page-node-id="PqhZ1jAbGU6TKr6ABAJFHO"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" data-page-node-id="uGQCbWGttD9v6uE06hXVtJ"/></svg>
-            <input type="text" placeholder="搜发件人或正文" value="验证码" data-page-node-id="ORSmQYneYByQk6GBoRtcVy">
+    <div class="specimen">
+      <div class="win">
+        <div class="win-bar">
+          <span class="field">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="color:var(--ink-3)"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="搜发件人或正文" value="验证码">
           </span>
-          <span class="chips" data-page-node-id="THWQRvy2GBGqMwpEo3xGAi">
-            <span class="chip" aria-pressed="true" data-page-node-id="YK7dAT0B7v7Euybmm2j2Hq">今天</span>
-            <span class="chip" data-page-node-id="aJ9t7UxCv57FmvQQXPw3aD">近 7 天</span>
-            <span class="chip" data-page-node-id="mXoW35SEGbzOZTScpudRaZ">全部</span>
+          <span class="chips">
+            <span class="chip" aria-pressed="true">今天</span>
+            <span class="chip">近 7 天</span>
+            <span class="chip">全部</span>
           </span>
         </div>
 
-        <div class="day" data-page-node-id="dPlvMjj1kYTI6QaykmFyKX">今天 · 10 月 12 日</div>
+        <div class="day">今天 · 10 月 12 日</div>
 
-        <div class="msg" data-selected="true" data-page-node-id="10rNlGPhM0IwaNo5AOStMf">
-          <span class="from" data-page-node-id="pcnorNBHqKNSfQrkUsaSPp">美团</span>
-          <span class="text" data-page-node-id="XazaDvaueh1FHodskcODDk">您的验证码是 <span class="code" data-page-node-id="rZdxrlU7O1RpdFwZ0eTRAg">847291 <button type="button" data-page-node-id="VxcBrXfZWHt8j9dByos8rO">复制</button></span>，5 分钟内有效。请勿泄露给任何人。</span>
-          <span class="time" data-page-node-id="2eMgEGbY6UmKm4Mrt4TeY3">10:42</span>
+        <div class="msg" data-selected="true">
+          <span class="from">美团</span>
+          <span class="text">您的验证码是 <span class="code">847291 <button type="button">复制</button></span>，5 分钟内有效。请勿泄露给任何人。</span>
+          <span class="time">10:42</span>
         </div>
 
-        <div class="msg" data-page-node-id="mm7yEKavr3bj26ORWHI3X2">
-          <span class="from" data-page-node-id="9HzEQlo4R8YjERAaKVoftC">招商银行</span>
-          <span class="text" data-page-node-id="REDlVoJa8GJHQaTuA9zV33">您尾号 6688 账户入账 3,200.00 元，余额 18,460.22 元。</span>
-          <span class="time" data-page-node-id="kjc2r18LjMPnJDUQnB8Vhr">09:15</span>
+        <div class="msg">
+          <span class="from">招商银行</span>
+          <span class="text">您尾号 6688 账户入账 3,200.00 元，余额 18,460.22 元。</span>
+          <span class="time">09:15</span>
         </div>
 
-        <div class="msg" data-page-node-id="EMqTTGdx4mAz93H9fsTqUr">
-          <span class="from" data-page-node-id="n8Aj2ZeeniHc30QspSlkKl">138 0013 8000</span>
-          <span class="text" data-page-node-id="WyIm8dMyzhgDCsLb5wVzjY">晚上七点老地方，别迟到。</span>
-          <span class="time" data-page-node-id="rDx8HyHszeSduPc32FHYbF">08:03</span>
+        <div class="msg">
+          <span class="from">138 0013 8000</span>
+          <span class="text">晚上七点老地方，别迟到。</span>
+          <span class="time">08:03</span>
         </div>
 
-        <div class="day" data-page-node-id="G4bXcCK0MKk2mzo8aPXjAs">昨天 · 10 月 11 日</div>
+        <div class="day">昨天 · 10 月 11 日</div>
 
-        <div class="msg" data-page-node-id="ZVAdgX7OBBgsMgOE4bgZ9f">
-          <span class="from" data-page-node-id="pRO2edVjnFgZfHdOKYc6FN">顺丰速运</span>
-          <span class="text" data-page-node-id="tmxWPg3jFxCivR7NA4gCDK">您的快件已放在丰巢柜 A-12，取件码 4471。</span>
-          <span class="time" data-page-node-id="t2cKBvT8Rj9AxM4fw93KxA">19:28</span>
+        <div class="msg">
+          <span class="from">顺丰速运</span>
+          <span class="text">您的快件已放在丰巢柜 A-12，取件码 4471。</span>
+          <span class="time">19:28</span>
         </div>
 
-        <div class="msg" data-page-node-id="OaTKAI2u10KV34TFibIdZG">
-          <span class="from" data-page-node-id="QMjFaRE6dQEinXnEfFZJeD">中国联通</span>
-          <span class="text" data-page-node-id="35RioUvMfKjP8jNHjfeZiE">您本月流量已用 12.4GB，剩余 7.6GB。</span>
-          <span class="time" data-page-node-id="wKn7sNCaOiwFeQwXaYWfna">11:02</span>
+        <div class="msg">
+          <span class="from">中国联通</span>
+          <span class="text">您本月流量已用 12.4GB，剩余 7.6GB。</span>
+          <span class="time">11:02</span>
         </div>
       </div>
 
-      <div data-page-node-id="uJUJ0jhh5hJ0T28aFy38RT">
-        <div class="specimen-label" data-page-node-id="yWXdiE2mJpBDpb4L8oxG9J">空状态</div>
-        <div class="win" style="width:300px" data-page-node-id="NLxCVfJLEMJCrqzQS1CuaD">
-          <div class="win-bar" data-page-node-id="JKHapUl5h6CFcKJbjktiRN"><span class="field" data-page-node-id="38JBueH7IdPhPjO5ChbP6l"><input type="text" placeholder="搜发件人或正文" data-page-node-id="CvsT6a3AdrFOCeGvlnwZZB"></span></div>
-          <div class="empty" data-page-node-id="je8mzx1CkzsAp0RwDmT0cY">
-            <span class="mark" style="color:var(--line-strong);display:inline-block" data-page-node-id="RPGdVmBUbvzGiEwGwHNONH">
-              <svg width="46" height="20" viewBox="0 0 512 222" fill="none" data-page-node-id="qnNyedW4Cd1sqjnpUXNlRk">
-                <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22" data-page-node-id="Hd57USzvgRxtuE2rGGhWGW"/>
-                <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24" data-page-node-id="tkj0K6uMHyDeGoTjcz6loY"/>
-                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22" data-page-node-id="KnsNuGXBX3hq8zfT6EUBJJ"/>
-                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor" data-page-node-id="2t2ewAKOVjdBeVsAkS1EcM"/>
+      <div>
+        <div class="specimen-label">空状态</div>
+        <div class="win" style="width:300px">
+          <div class="win-bar"><span class="field"><input type="text" placeholder="搜发件人或正文"></span></div>
+          <div class="empty">
+            <span class="mark" style="color:var(--line-strong);display:inline-block">
+              <svg width="46" height="20" viewBox="0 0 512 222" fill="none">
+                <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22"/>
+                <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24"/>
+                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
               </svg>
             </span>
-            <h3 data-page-node-id="RwPx4V2tNniNowff81IPvm">还没有短信</h3>
-            <p data-page-node-id="5JtTBUiUOrT97laUmTHkCJ">先在面板里连上手机。连上之后新来的短信会出现在这里，手机上的旧短信不会搬过来。</p>
-            <button class="btn primary" data-page-node-id="uCdb4qcsRW9DRz8ssmuIRL">连接手机…</button>
+            <h3>还没有短信</h3>
+            <p>先在面板里连上手机。连上之后新来的短信会出现在这里，手机上的旧短信不会搬过来。</p>
+            <button class="btn primary">连接手机…</button>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section data-page-node-id="uLTra3RH7kFm5xKAM5UurR">
-    <h2 data-page-node-id="zRXFGEGWwbmkK6TLwx11jX">状态与动效</h2>
-    <p class="lede" data-page-node-id="IW3Da4vXdFD1cAkLlz41bf">每个可交互控件都要有完整状态：默认、悬停、聚焦、按下、禁用、加载、出错。动效只用来传达状态变化，不做装饰；时长 150–250ms，指数缓出。加载用骨架屏，不用转圈。</p>
-    <ul class="notes" data-page-node-id="A2BOaGfKiaRUVtW3MDKBxv">
-      <li data-page-node-id="HEWiFsZ3zmanydyFk44liO">开关切换：滑块位移 180ms，指数缓出，从当前状态直接过渡，不做回弹。</li>
-      <li data-page-node-id="GERdzgSuzBl4BgfTyrU6uk">链路状态变化：状态点与文字一起变，不加闪烁或脉冲。</li>
-      <li data-page-node-id="2FBAFaxIrjCqwiYetQegrn">新短信到达：列表行淡入 200ms，同时滚动到顶部；不做整页重排。</li>
-      <li data-page-node-id="P7uo5OGWvOVe0I5c4apsKh">尊重系统「减弱动态效果」：打开时所有位移改为瞬时。</li>
-      <li data-page-node-id="x3qCg9JSdEzCH2Q8niqK7M">复制验证码后，按钮文字在 1.2 秒内变成「已复制」再变回，给一次明确回执。</li>
+  <section>
+    <h2>状态与动效</h2>
+    <p class="lede">每个可交互控件都要有完整状态：默认、悬停、聚焦、按下、禁用、加载、出错。动效只用来传达状态变化，不做装饰；时长 150–250ms，指数缓出。加载用骨架屏，不用转圈。</p>
+    <ul class="notes">
+      <li>开关切换：滑块位移 180ms，指数缓出，从当前状态直接过渡，不做回弹。</li>
+      <li>链路状态变化：状态点与文字一起变，不加闪烁或脉冲。</li>
+      <li>新短信到达：列表行淡入 200ms，同时滚动到顶部；不做整页重排。</li>
+      <li>尊重系统「减弱动态效果」：打开时所有位移改为瞬时。</li>
+      <li>复制验证码后，按钮文字在 1.2 秒内变成「已复制」再变回，给一次明确回执。</li>
     </ul>
   </section>
 
-  <section data-page-node-id="Jy3LAJIQkcW92wWZ79JsZf">
-    <h2 data-page-node-id="McM4hiYMTHuIyu9HmfrrRB">落地约定</h2>
-    <ul class="notes" data-page-node-id="S7bRNoIQXYxfGzBjw0MNKv">
-      <li data-page-node-id="t40cgQd6m9hP9wyNofSzk4">字体用系统字体（SF Pro / PingFang SC），不引入自定义字族。</li>
-      <li data-page-node-id="RDbQImzUn2uz9V6G53naHj">深浅色两套取值都在上面的表里，SwiftUI 侧用 Asset Catalog 或代码里的条件色实现。</li>
-      <li data-page-node-id="pD51PRo2pkN0IyAdFQxwFX">所有文字与背景的对比度已实测，最低 4.8:1，满足 WCAG AA。</li>
-      <li data-page-node-id="JmGT2tvV4sHkTCEZdaQ4e5">时间与数值一律 <code data-page-node-id="DJZ4qHMYoMBmHDTPMVrApO">font-variant-numeric: tabular-nums</code>。</li>
-      <li data-page-node-id="YJVQ0qGzT2B9zB8FiibyTU">图标一律自绘 SVG 或 SF Symbols，不用 emoji 充当图标。</li>
+  <section>
+    <h2>落地约定</h2>
+    <ul class="notes">
+      <li>字体用系统字体（SF Pro / PingFang SC），不引入自定义字族。</li>
+      <li>深浅色两套取值都在上面的表里，SwiftUI 侧用 Asset Catalog 或代码里的条件色实现。</li>
+      <li>所有文字与背景的对比度已实测，最低 4.8:1，满足 WCAG AA。</li>
+      <li>时间与数值一律 <code>font-variant-numeric: tabular-nums</code>。</li>
+      <li>图标一律自绘 SVG 或 SF Symbols，不用 emoji 充当图标。</li>
     </ul>
   </section>
 

@@ -14,7 +14,7 @@ Mac 作为蓝牙客户端，直连手机暴露的标准蓝牙服务，手机端�
 
 ## 当前状态
 
-V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询收件箱 → 只对新增短信弹通知并落库。
+V1 可用，形态是一个菜单栏应用：面板里选手机、开关监听、看最近收到的短信，另有独立的「消息记录」窗口翻全部历史。
 
 ![手机收到短信后，Mac 上弹出的系统通知](assets/notification.png)
 
@@ -25,6 +25,20 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 - 已见 handle 持久化，重启不重复通知
 - 手机端 SDP 记录、OBEX 全链路、列表解析、事件订阅的实测记录见技术方案 §7
 
+## 界面
+
+菜单栏面板（宽 300）分三段，底部一条主操作：
+
+| 分区 | 内容 |
+|---|---|
+| 连接 | 链路标记、手机名、状态指示 |
+| 监听 | 短信监听、通话监听、开机自启三个开关，外加「更换手机…」 |
+| 最近收到 | 最新两条短信，报发件人、正文、时刻 |
+
+底部「打开消息记录」开出 560px 的窗口：关键字搜索 + 全部 / 今天 / 近 7 天三档时间筛选，按天分组吸顶，正文里认出验证码就在下面挂一个等宽数字的复制胶囊。窗口只读，不提供删除。
+
+视觉系统见 `DESIGN.md`，实物样本见 `design/设计规范.html`。
+
 ## 目录
 
 | 路径 | 说明 |
@@ -34,10 +48,15 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 | `DESIGN.md` | 视觉系统：颜色、字阶、圆角、间距、组件令牌 |
 | `design/设计规范.html` | 设计规范的实物样本，深浅两套取值可切换 |
 | `HarmonyCore.swift` | 引擎：增量同步 + 系统通知 + 落库 + 查询 |
+| `HarmonyApp.swift` | App 入口：菜单栏项、窗口、后台形态 |
+| `PanelView.swift` | 菜单栏面板与选手机页 |
+| `MessageWindowView.swift` | 消息记录窗口 |
+| `AppModel.swift` | 界面状态与引擎之间的那一层 |
+| `DesignSystem.swift` | 视觉令牌与小组件（链路标记、开关、按钮、行底） |
 | `HarmonyCLI.swift` | 命令行入口：跑同步、看日志、各种本地自检 |
 | `hfp_probe.swift` | 通话探针：验证在 Mac 上接电话、通话音频走电脑 |
 | `make_icon.swift` | 图标生成：App 图标 + 菜单栏模板图（链路通 / 断各一套） |
-| `build.sh` | 编译客户端并组装成 `HarmonySync.app` |
+| `build.sh` | 编译 App 与命令行两个目标，组装成 `HarmonySync.app` |
 | `run_sync.command` | 双击启动：增量同步 |
 | `run_fast_sync.command` | 双击启动：秒级轮询 |
 | `run_notify_check.command` | 双击运行：通知自检 |
@@ -52,19 +71,25 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 ./build.sh
 ```
 
-客户端编成 `HarmonySync.bin`，再组装成 `HarmonySync.app`（带蓝牙用途说明、图标与 ad-hoc 签名），末尾向 LaunchServices 登记。
+出两个目标：`HarmonySync.bin` 组装成 `HarmonySync.app`（带蓝牙用途说明、图标与 ad-hoc 签名），`HarmonyCLI.bin` 留在仓库根目录供自检；末尾向 LaunchServices 登记。
 
 ## 运行
 
-双击 `HarmonySync.app` 即以后台形态常驻，不占 Dock 图标。想看日志就双击 `run_sync.command`（增量同步）或 `run_fast_sync.command`（秒级轮询，跑 4 分钟），日志同时落在 `/tmp/harmony_sync_result.txt`。也可以直接跑：
+双击 `HarmonySync.app`，菜单栏出现链路标记，点开就是面板。这个形态常驻菜单栏、不占 Dock。首次要在面板里选一次手机，之后开关是开着的状态就自动连上。
+
+命令行入口与 App 共用同一份引擎，自检都在这里跑：
 
 ```bash
-./HarmonySync.app/Contents/MacOS/HarmonySync                     # 持续同步
-./HarmonySync.app/Contents/MacOS/HarmonySync --interval 2        # 秒级轮询
-./HarmonySync.app/Contents/MacOS/HarmonySync --test-notify       # 通知自检
+./HarmonyCLI.bin                          # 持续同步
+./HarmonyCLI.bin --interval 2             # 秒级轮询
+./HarmonyCLI.bin --test-notify            # 通知自检
+./HarmonyCLI.bin --parse listing.xml      # 解析一份列表，看条数与正文
+./HarmonyCLI.bin --codes codes.txt        # 验验证码识别，一行一条正文
+./HarmonyCLI.bin --dump-notif             # 打印五种订阅写法的报文
+./HarmonyCLI.bin --mns-selftest           # 事件订阅自检
 ```
 
-双击 App 启动的是后台进程，退出在「活动监视器」里结束 `HarmonySync`。
+日志落在 `/tmp/harmony_sync_result.txt`，同时打到标准输出。菜单栏进程的退出在「活动监视器」里结束 `HarmonySync`。
 
 首次运行需要在系统询问里允许蓝牙与通知。若错过那次询问，到「系统设置 → 通知」里把本 App（`HarmonySync`）的开关打开即可。
 
@@ -81,8 +106,8 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 ## 环境
 
 - 手机：HarmonyOS 7（实测 华为 Pura 80 Pro）
-- Mac：macOS 12+
-- 工具链：Swift / IOBluetooth / SQLite3
+- Mac：macOS 13+
+- 工具链：Swift / SwiftUI / IOBluetooth / SQLite3
 
 ## 授权说明
 

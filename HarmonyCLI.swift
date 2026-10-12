@@ -61,6 +61,22 @@ struct HarmonyCLI {
             exit(0)
         }
 
+        // 本地自检：验验证码识别，一行一条正文，不碰蓝牙
+        if let i = args.firstIndex(of: "--codes"), i + 1 < args.count {
+            let path = args[i + 1]
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+                print("读不到 \(path)")
+                exit(1)
+            }
+            for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let line = String(raw).trimmingCharacters(in: .whitespaces)
+                if line.isEmpty || line.hasPrefix("#") { continue }
+                let code = firstVerificationCode(in: line) ?? "（没认出来）"
+                print("\(code)\t← \(line)")
+            }
+            exit(0)
+        }
+
         // 本地自检：打印五种订阅写法的报文，不碰蓝牙
         if args.contains("--dump-notif") {
             let learned: [UInt8] = [0x00, 0x00, 0x00, 0x07]

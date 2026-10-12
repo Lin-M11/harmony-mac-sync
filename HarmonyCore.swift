@@ -949,6 +949,20 @@ final class MnsServer: NSObject {
         }
     }
 
+    /// 撤掉 SDP 记录与入站监听，并关掉已经接上的通道。
+    func stop() {
+        for n in notifications { n.unregister() }
+        notifications.removeAll()
+        for c in channels { _ = c.channel.close() }
+        channels.removeAll()
+        handledIDs.removeAll()
+        if let r = record { _ = r.remove() }
+        record = nil
+        channelID = 0
+        incomingCount = 0
+        emit("  [MNS] 已停止监听")
+    }
+
     @objc func incoming(_ note: IOBluetoothUserNotification!, channel: IOBluetoothRFCOMMChannel!) {
         guard let ch = channel else { return }
         let id = ch.getID()
