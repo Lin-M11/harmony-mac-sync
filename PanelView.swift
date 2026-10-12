@@ -32,7 +32,7 @@ struct PanelView: View {
         HStack(alignment: .center, spacing: HS.s3) {
             LinkMark(linked: model.link == .connected,
                      color: model.link == .connected ? .hsAccent : .hsInk3,
-                     width: 26)
+                     width: 22)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.titleText)

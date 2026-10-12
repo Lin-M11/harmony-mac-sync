@@ -79,27 +79,28 @@ func roundedPolygon(_ pts: [CGPoint], radius: CGFloat) -> CGPath {
 
 // MARK: - 标记几何
 // 本地坐标以标记包围盒左上角为原点，y 向下。LINK_Y 是共同中线：手机与显示器屏幕都以它居中。
+// 整体比例压到约 1.5:1，好让菜单栏图标落在正方形画布里时占得饱满。
 
-let PHONE_W: CGFloat = 108
-let PHONE_H: CGFloat = 212
-let PHONE_R: CGFloat = 26
+let PHONE_W: CGFloat = 92
+let PHONE_H: CGFloat = 210
+let PHONE_R: CGFloat = 24
 
 let GAP: CGFloat = 8            // 链路两端各留一点呼吸
 
-let LINK_W: CGFloat = 140
-let LINK_T: CGFloat = 22
+let LINK_W: CGFloat = 56
+let LINK_T: CGFloat = 20
 let LINK_DASH_ON: CGFloat = 32  // 链路断开时的虚线段
 let LINK_DASH_OFF: CGFloat = 24
 
-let MON_W: CGFloat = 248
-let MON_H: CGFloat = 168
-let MON_R: CGFloat = 22
-let MON_STROKE: CGFloat = 22
+let MON_W: CGFloat = 152
+let MON_H: CGFloat = 104
+let MON_R: CGFloat = 18
+let MON_STROKE: CGFloat = 20
 
-let STAND_TOP_W: CGFloat = 54
-let STAND_BOT_W: CGFloat = 100
-let STAND_H: CGFloat = 32
-let STAND_R: CGFloat = 11
+let STAND_TOP_W: CGFloat = 48
+let STAND_BOT_W: CGFloat = 88
+let STAND_H: CGFloat = 22
+let STAND_R: CGFloat = 10
 
 let LINK_Y: CGFloat = PHONE_H / 2
 let LINK_X: CGFloat = PHONE_W + GAP
@@ -190,13 +191,14 @@ func drawAppIcon(_ size: Int) -> CGImage? {
 }
 
 /// 菜单栏模板图：纯黑 + 透明，系统按菜单栏明暗自动反相。
-func drawMenuBarIcon(height: Int, linked: Bool = true) -> CGImage? {
-    let h = CGFloat(height)
-    let markH = h - 2                       // 上下各留 1px，避免贴边被裁
-    let width = Int((markH * MARK_W / MARK_H).rounded())
-    guard let ctx = makeContext(width, height) else { return nil }
-    drawMarkInBox(ctx, originX: 0, originY: 1,
-                  boxW: CGFloat(width), boxH: markH, color: rgb((0, 0, 0)), linked: linked)
+///
+/// 画布取正方形，宽度与菜单栏里其他图标一致；标记按自身比例居中放进去，四周留一点余量。
+func drawMenuBarIcon(size: Int, linked: Bool = true) -> CGImage? {
+    let s = CGFloat(size)
+    let inset = max(1, (s * 0.06).rounded())
+    guard let ctx = makeContext(size, size) else { return nil }
+    drawMarkInBox(ctx, originX: inset, originY: inset,
+                  boxW: s - inset * 2, boxH: s - inset * 2, color: rgb((0, 0, 0)), linked: linked)
     return ctx.makeImage()
 }
 
@@ -296,15 +298,15 @@ ensureDir(outDir)
 
 switch mode {
 case "--menubar":
-    // 菜单栏模板图：1x 高 18px，另出 @2x / @3x。
+    // 菜单栏模板图：1x 是 18×18 的正方形，另出 @2x / @3x。
     // 名字以 Template 结尾，AppKit 取用时自动按模板图处理。
     // 两个状态各一套：链路通、链路断。
     var ok = 0, total = 0
     for (prefix, linked) in [("MenuBarIconTemplate", true), ("MenuBarIconOffTemplate", false)] {
-        for (suffix, h) in [(".png", 18), ("@2x.png", 36), ("@3x.png", 54)] {
+        for (suffix, px) in [(".png", 18), ("@2x.png", 36), ("@3x.png", 54)] {
             let name = prefix + suffix
             total += 1
-            guard let img = drawMenuBarIcon(height: h, linked: linked) else {
+            guard let img = drawMenuBarIcon(size: px, linked: linked) else {
                 print("  ✗ \(name) 渲染失败")
                 continue
             }
@@ -324,8 +326,8 @@ case "--preview":
         out("app-\(s).png", drawAppIcon(s))
     }
     for h in [18, 36, 54] {
-        out("menubar-on-\(h).png", drawMenuBarIcon(height: h, linked: true))
-        out("menubar-off-\(h).png", drawMenuBarIcon(height: h, linked: false))
+        out("menubar-on-\(h).png", drawMenuBarIcon(size: h, linked: true))
+        out("menubar-off-\(h).png", drawMenuBarIcon(size: h, linked: false))
     }
     let light = rgb((0.95, 0.95, 0.95)), dark = rgb((0.16, 0.16, 0.16))
     let black = rgb((0, 0, 0)), white = rgb((1, 1, 1))

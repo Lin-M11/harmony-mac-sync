@@ -12,3 +12,6 @@ MakeIcon
 AppIcon.icns
 AppIcon.iconset/
 MenuBarIcons/
+
+# 打包产物，由 package.sh 生成
+dist/

@@ -57,6 +57,7 @@ V1 可用，形态是一个菜单栏应用：面板里选手机、开关监听�
 | `hfp_probe.swift` | 通话探针：验证在 Mac 上接电话、通话音频走电脑 |
 | `make_icon.swift` | 图标生成：App 图标 + 菜单栏模板图（链路通 / 断各一套） |
 | `build.sh` | 编译 App 与命令行两个目标，组装成 `HarmonySync.app` |
+| `package.sh` | 出可分发的 `dist/HarmonySync.app` 与 `dist/HarmonySync-1.0.dmg` |
 | `run_sync.command` | 双击启动：增量同步 |
 | `run_fast_sync.command` | 双击启动：秒级轮询 |
 | `run_notify_check.command` | 双击运行：通知自检 |
@@ -64,6 +65,14 @@ V1 可用，形态是一个菜单栏应用：面板里选手机、开关监听�
 | `assets/notification.png` | 上面那张通知截图 |
 
 验证阶段的探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力）源码在 git 历史里，取证结果收在技术方案 §7.1–§7.4，取回方式见技术方案 §7.7。
+
+## 安装
+
+```bash
+./package.sh
+```
+
+出 `dist/HarmonySync-1.0.dmg`：打开后把 `HarmonySync` 拖进 Applications（dmg 里放了快捷方式），双击就能用。应用自带图标、菜单栏模板图与 Info.plist，装在哪都能跑；数据落在 `~/Library/Application Support/HarmonySync/`。首次运行系统会问蓝牙与通知两项权限。
 
 ## 构建
 

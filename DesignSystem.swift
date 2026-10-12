@@ -60,15 +60,15 @@ extension Font {
 // MARK: - 母题
 
 /// 母题：一条链路把两边连起来。
-/// 几何与 App 图标同源（见 make_icon.swift 的标记常量），viewBox 512 × 222。
+/// 几何与 App 图标同源（见 make_icon.swift 的标记常量），viewBox 316 × 210。
 struct LinkMark: View {
     var linked: Bool = true
     var color: Color = .hsAccent
     /// 标记宽度，高度按 viewBox 比例推出来
     var width: CGFloat = 22
 
-    private let VBW: CGFloat = 512
-    private let VBH: CGFloat = 222
+    private let VBW: CGFloat = 316
+    private let VBH: CGFloat = 210
 
     var body: some View {
         Canvas { ctx, size in
@@ -84,29 +84,29 @@ struct LinkMark: View {
             }
 
             // 手机：实心
-            ctx.fill(box(0, 0, 108, 212, 26), with: .color(color))
+            ctx.fill(box(0, 0, 92, 210, 24), with: .color(color))
 
             // 链路：落在共同中线上，通为实心横条、断为虚线
             if linked {
-                ctx.fill(box(116, 95, 140, 22, 11), with: .color(color))
+                ctx.fill(box(100, 95, 56, 20, 10), with: .color(color))
             } else {
                 var line = Path()
-                line.move(to: pt(116, 106))
-                line.addLine(to: pt(256, 106))
+                line.move(to: pt(100, 105))
+                line.addLine(to: pt(156, 105))
                 ctx.stroke(line, with: .color(color),
-                           style: StrokeStyle(lineWidth: 22 * k, lineCap: .butt,
+                           style: StrokeStyle(lineWidth: 20 * k, lineCap: .butt,
                                               dash: [32 * k, 24 * k]))
             }
 
             // 显示器：描边
-            ctx.stroke(box(275, 33, 226, 146, 11), with: .color(color), lineWidth: 22 * k)
+            ctx.stroke(box(164, 63, 132, 84, 8), with: .color(color), lineWidth: 20 * k)
 
             // 底座：梯形
             var stand = Path()
-            stand.move(to: pt(361, 190))
-            stand.addLine(to: pt(415, 190))
-            stand.addLine(to: pt(438, 222))
-            stand.addLine(to: pt(338, 222))
+            stand.move(to: pt(204, 157))
+            stand.addLine(to: pt(252, 157))
+            stand.addLine(to: pt(272, 179))
+            stand.addLine(to: pt(184, 179))
             stand.closeSubpath()
             ctx.fill(stand, with: .color(color))
         }
