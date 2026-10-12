@@ -33,7 +33,8 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 | `PRODUCT.md` | 产品真值：平台、技术栈、能力与边界 |
 | `DESIGN.md` | 视觉系统：颜色、字阶、圆角、间距、组件令牌 |
 | `design/设计规范.html` | 设计规范的实物样本，深浅两套取值可切换 |
-| `harmony_sync.swift` | 客户端：增量同步 + 系统通知 + 落库 |
+| `HarmonyCore.swift` | 引擎：增量同步 + 系统通知 + 落库 + 查询 |
+| `HarmonyCLI.swift` | 命令行入口：跑同步、看日志、各种本地自检 |
 | `hfp_probe.swift` | 通话探针：验证在 Mac 上接电话、通话音频走电脑 |
 | `make_icon.swift` | 图标生成：App 图标 + 菜单栏模板图（链路通 / 断各一套） |
 | `build.sh` | 编译客户端并组装成 `HarmonySync.app` |

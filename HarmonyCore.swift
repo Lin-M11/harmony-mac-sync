@@ -4,16 +4,16 @@ import SQLite3
 import UserNotifications
 import AppKit
 
-// 鸿蒙短信 → Mac 增量同步
+// 鸿蒙短信 → Mac 增量同步：引擎
 //
 // 只同步绑定之后新到达的短信：拉一次收件箱列表 → 与已见 handle 比对 →
 // 对新增的取正文 → 弹系统通知 → 落库。
 //
-// 用法:
-//   ./HarmonySync                      持续轮询
-//   ./HarmonySync --once               只跑一轮就退出
-//   ./HarmonySync --reset --once       清空本地记录后重新建立基线
-//   ./HarmonySync <设备地址> [通道]
+// 这一份是引擎本体，不含入口。两个入口共用它：
+//   HarmonyCLI.swift  命令行（跑同步、看日志、各种本地自检）
+//   HarmonyApp.swift  SwiftUI 菜单栏应用
+//
+// 两边用同一个数据库、同一套通知身份，所以同一时刻只该跑一个。
 
 // MARK: - 配置
 
@@ -33,14 +33,30 @@ let DB_DIR = HOME + "/Library/Application Support/HarmonySync"
 let DB_PATH = DB_DIR + "/messages.db"
 let LOG_PATH = "/tmp/harmony_sync_result.txt"
 
-var logBuffer = ""
+// 日志：进程内只开一次，先清空再追加。
+// 每写一行就重写整份文件在长跑里会越来越慢，追加才跟得上。
+private var logFile: FileHandle? = {
+    FileManager.default.createFile(atPath: LOG_PATH, contents: nil)
+    guard let h = FileHandle(forWritingAtPath: LOG_PATH) else { return nil }
+    try? h.truncate(atOffset: 0)
+    return h
+}()
+
+var logBuffer = ""                        // 内存里只留最近这些字符，供界面展示
+let LOG_BUFFER_LIMIT = 40_000
+
 func emit(_ items: Any...) {
     let line = items.map { String(describing: $0) }.joined(separator: " ")
     let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
     let out = "[\(stamp)] \(line)"
     print(out)
     logBuffer += out + "\n"
-    try? logBuffer.write(toFile: LOG_PATH, atomically: true, encoding: .utf8)
+    if logBuffer.count > LOG_BUFFER_LIMIT {
+        logBuffer = String(logBuffer.suffix(LOG_BUFFER_LIMIT / 2))
+    }
+    if let h = logFile, let d = (out + "\n").data(using: .utf8) {
+        try? h.write(contentsOf: d)
+    }
 }
 
 func hex(_ bytes: [UInt8]) -> String {
@@ -215,6 +231,72 @@ func prettyTime(_ stamp: String) -> String {
 
 let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
+/// 库里的一条短信，界面直接拿去显示。
+struct StoredMessage: Identifiable, Hashable {
+    let id: Int64
+    let handle: String
+    let peerNumber: String
+    let peerName: String
+    let body: String
+    let stamp: String
+    let receivedAt: Date
+    let notified: Bool
+
+    /// 列表里显示的名字：有备注名就用备注名，否则用号码
+    var displayName: String { peerName.isEmpty ? peerNumber : peerName }
+
+    /// 短信自带的时间戳（手机侧），解析不出来时退回收到时间
+    var sentAt: Date { parseStamp(stamp) ?? receivedAt }
+
+    /// 正文里认出来的验证码，没有就是 nil
+    var verificationCode: String? { firstVerificationCode(in: body) }
+}
+
+/// 手机侧时间戳是 `yyyyMMdd'T'HHmmss` 这种紧凑写法。
+func parseStamp(_ raw: String) -> Date? {
+    guard raw.count >= 15 else { return nil }
+    let f = DateFormatter()
+    f.dateFormat = "yyyyMMdd'T'HHmmss"
+    f.timeZone = TimeZone.current
+    return f.date(from: String(raw.prefix(15)))
+}
+
+/// 从正文里挑出验证码：4–8 位数字，前后不能紧挨着别的数字。
+/// 优先认「验证码」「校验码」「动态码」这类词附近的数字。
+func firstVerificationCode(in body: String) -> String? {
+    let hints = ["验证码", "校验码", "动态码", "确认码", "口令", "code"]
+    let ns = body as NSString
+    for hint in hints {
+        var searchFrom = 0
+        while searchFrom < ns.length {
+            let r = ns.range(of: hint, options: .caseInsensitive,
+                             range: NSRange(location: searchFrom, length: ns.length - searchFrom))
+            if r.location == NSNotFound { break }
+            let tail = ns.substring(from: r.location + r.length)
+            if let code = firstStandaloneNumber(in: tail) { return code }
+            searchFrom = r.location + r.length
+        }
+    }
+    return nil
+}
+
+private func firstStandaloneNumber(in text: String) -> String? {
+    var digits = ""
+    var started = false
+    for ch in text {
+        if ch.isNumber {
+            digits.append(ch)
+            started = true
+        } else if started {
+            if digits.count >= 4 && digits.count <= 8 { return digits }
+            digits = ""
+            started = false
+        }
+    }
+    if started, digits.count >= 4, digits.count <= 8 { return digits }
+    return nil
+}
+
 final class Store {
     var db: OpaquePointer?
 
@@ -319,6 +401,78 @@ final class Store {
         sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 2, value, -1, SQLITE_TRANSIENT)
         sqlite3_step(stmt)
+    }
+
+    // MARK: 查询（界面用）
+
+    private func messageRow(_ stmt: OpaquePointer?) -> StoredMessage? {
+        guard let stmt else { return nil }
+        func text(_ i: Int32) -> String {
+            guard let c = sqlite3_column_text(stmt, i) else { return "" }
+            return String(cString: c)
+        }
+        return StoredMessage(
+            id: sqlite3_column_int64(stmt, 0),
+            handle: text(1),
+            peerNumber: text(2),
+            peerName: text(3),
+            body: text(4),
+            stamp: text(5),
+            receivedAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(stmt, 6))),
+            notified: sqlite3_column_type(stmt, 7) != SQLITE_NULL)
+    }
+
+    private func runMessages(_ sql: String, _ bind: (OpaquePointer?) -> Void) -> [StoredMessage] {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        bind(stmt)
+        var out: [StoredMessage] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let m = messageRow(stmt) { out.append(m) }
+        }
+        return out
+    }
+
+    /// 最近 N 条，按收到时间倒序
+    func recentMessages(limit: Int) -> [StoredMessage] {
+        runMessages("""
+            SELECT id, handle, peer_number, peer_name, body, stamp, received_at, notified_at
+            FROM message ORDER BY received_at DESC, id DESC LIMIT ?
+            """) { sqlite3_bind_int64($0, 1, Int64(limit)) }
+    }
+
+    /// 按关键字（发件人或正文）与起始时间过滤，按收到时间倒序。关键字为空就是全部。
+    func searchMessages(keyword: String, since: Date?) -> [StoredMessage] {
+        var sql = """
+            SELECT id, handle, peer_number, peer_name, body, stamp, received_at, notified_at
+            FROM message WHERE 1 = 1
+            """
+        let kw = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !kw.isEmpty { sql += " AND (peer_name LIKE ? OR peer_number LIKE ? OR body LIKE ?)" }
+        if since != nil { sql += " AND received_at >= ?" }
+        sql += " ORDER BY received_at DESC, id DESC"
+        return runMessages(sql) { stmt in
+            var i: Int32 = 1
+            if !kw.isEmpty {
+                let like = "%\(kw)%"
+                for _ in 0..<3 {
+                    sqlite3_bind_text(stmt, i, like, -1, SQLITE_TRANSIENT)
+                    i += 1
+                }
+            }
+            if let since { sqlite3_bind_int64(stmt, i, Int64(since.timeIntervalSince1970)) }
+        }
+    }
+
+    /// 库里最新一条的收到时间
+    func lastReceivedAt() -> Date? {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT MAX(received_at) FROM message", -1, &stmt, nil) == SQLITE_OK,
+              sqlite3_step(stmt) == SQLITE_ROW,
+              sqlite3_column_type(stmt, 0) != SQLITE_NULL else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(stmt, 0)))
     }
 
     // 已见记录只保留近 120 天，避免无限增长
@@ -840,6 +994,12 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     var pendingPoll: DispatchWorkItem?
     var immediatePollPending = false
 
+    // 界面挂上来的钩子
+    var onLinkChange: ((Bool) -> Void)?      // 通道开 / 关
+    var onNewMessages: (([Sms]) -> Void)?    // 一批新短信入库之后
+    var onPoll: (() -> Void)?                // 每轮轮询结束
+    private var stopped = false              // 用户主动断开后停在断开态
+
     init(store: Store, device: IOBluetoothDevice, channelID: BluetoothRFCOMMChannelID, once: Bool) {
         self.store = store
         self.device = device
@@ -849,7 +1009,21 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     func start() {
+        stopped = false
         openSession()
+    }
+
+    /// 主动断开：关掉通道、撤掉待跑的轮询，之后停在断开态。
+    func stop() {
+        stopped = true
+        pendingPoll?.cancel()
+        pendingPoll = nil
+        immediatePollPending = false
+        if let ch = channel { _ = ch.close() }
+        channel = nil
+        phase = .idle
+        emit("已断开链路")
+        onLinkChange?(false)
     }
 
     func openSession() {
@@ -882,18 +1056,25 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         }
         var body: [UInt8] = [0x10, 0x00, 0xFF, 0xFF]
         body += lenHeader(HDR_TARGET, MAS_UUID)
+        onLinkChange?(true)
         send(frame(opcode: OBEX_CONNECT, body: body), note: "Connect")
     }
 
     func rfcommChannelClosed(_ ch: IOBluetoothRFCOMMChannel!) {
         emit("通道已关闭")
+        onLinkChange?(false)
+        guard !stopped else { return }
         guard phase != .idle else { return }
         scheduleReconnect()
     }
 
     func scheduleReconnect() {
+        guard !stopped else { return }
         phase = .idle
-        DispatchQueue.main.asyncAfter(deadline: .now() + RETRY_DELAY) { self.openSession() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + RETRY_DELAY) {
+            guard !self.stopped else { return }
+            self.openSession()
+        }
     }
 
     // MARK: 发送
@@ -915,6 +1096,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     func armTimeout() {
         let t = token
         DispatchQueue.main.asyncAfter(deadline: .now() + STEP_TIMEOUT) {
+            guard !self.stopped else { return }
             guard t == self.token else { return }
             emit("  ⏱ 无响应，重连")
             self.scheduleReconnect()
@@ -1149,6 +1331,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         emit("  ✓ 已通知并入库，本地共 \(store.count("message")) 条")
         emit("")
 
+        onNewMessages?(fresh)
         scheduleNextPoll()
     }
 
@@ -1161,6 +1344,7 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     func scheduleNextPoll() {
+        onPoll?()
         if once {
             emit("（--once：本轮结束，退出）")
             finish()
@@ -1220,225 +1404,3 @@ final class Sync: NSObject, IOBluetoothRFCOMMChannelDelegate {
         CFRunLoopStop(CFRunLoopGetCurrent())
     }
 }
-
-// MARK: - 入口
-
-var args = Array(CommandLine.arguments.dropFirst())
-
-// 本地自检：弹一条测试通知，看通知的样子。不碰蓝牙
-if args.contains("--test-notify") {
-    emit("=== 通知自检 ===")
-    emit("通知身份：\(Bundle.main.bundleIdentifier ?? "（不是 App 包）")")
-    Notifier.shared.prepare(activate: true)
-    // 系统询问要用户点一下，给足时间；已授权时这一步立刻返回
-    Notifier.shared.waitForAuthorization(seconds: 45)
-    Notifier.shared.reportSettings()
-    notify(title: "张三", body: "这是一条测试短信，用来确认通知的样子。", subtitle: "138 0000 0000")
-    RunLoop.current.run(until: Date().addingTimeInterval(4.0))
-    emit("已发出测试通知")
-    exit(0)
-}
-
-// 本地自检：不连蓝牙，直接拿一份保存下来的列表验解析
-if let i = args.firstIndex(of: "--parse"), i + 1 < args.count {
-    let path = args[i + 1]
-    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
-        print("读不到 \(path)")
-        exit(1)
-    }
-    let tags = text.components(separatedBy: "<msg ").count - 1
-    let msgs = parseListing(text)
-    print("msg 元素 \(tags) 个，解析出 \(msgs.count) 条")
-    print("正文含引号的条数：\(msgs.filter { $0.subject.contains("\"") }.count)")
-    print("最新 3 条：")
-    for m in msgs.prefix(3) {
-        print("  [\(prettyTime(m.datetime))] \(m.peerNumber) — \(m.subject)")
-    }
-    if let q = msgs.first(where: { $0.subject.contains("\"") }) {
-        print("含引号的样例：")
-        print("  [\(prettyTime(q.datetime))] \(q.peerNumber) — \(q.subject)")
-    }
-    exit(0)
-}
-
-// 本地自检：拿一份事件报告正文验解析，不碰蓝牙
-if let i = args.firstIndex(of: "--event"), i + 1 < args.count {
-    let path = args[i + 1]
-    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
-        print("读不到 \(path)")
-        exit(1)
-    }
-    print("正文 \(text.count) 字")
-    print("解析结果：\(parseEventReport(text))")
-    exit(0)
-}
-
-// 本地自检：打印五种订阅写法的报文，不碰蓝牙
-if args.contains("--dump-notif") {
-    let learned: [UInt8] = [0x00, 0x00, 0x00, 0x07]
-    for (i, label) in NOTIF_VARIANTS.enumerated() {
-        let p = notifRequest(variant: i, learnedConnID: learned)
-        print("\(i) \(label)（\(p.count) 字节）")
-        print("   \(hex(p))")
-    }
-    exit(0)
-}
-
-// 本地自检：用合成报文走一遍 MNS 入站处理，不碰蓝牙
-if args.contains("--mns-selftest") {
-    var connID: [UInt8] = [0x00, 0x00, 0x00, 0x01]
-
-    // 手机连上 MNS 时发的 Connect（带 Target = MNS UUID）
-    var c1: [UInt8] = [0x10, 0x00, 0xFF, 0xFF]
-    c1 += lenHeader(HDR_TARGET, MNS_UUID_128)
-    let connect = frame(opcode: 0x80, body: c1)
-
-    // 手机推来的事件报告
-    let report = """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <MAP-event-report version="1.0">
-    <event type="NewMessage" handle="0000000000000042" folder="telecom/msg/inbox" msg_type="SMS_GSM"/>
-    </MAP-event-report>
-    """
-    var c2: [UInt8] = []
-    c2 += lenHeader(HDR_TYPE, Array(EVENT_REPORT_TYPE.utf8))
-    c2 += lenHeader(HDR_APPPARAMS, [0x0F, 0x01, 0x01])
-    c2 += lenHeader(HDR_END_OF_BODY, Array(report.utf8))
-    let eventPut = frame(opcode: OBEX_PUT_FINAL, body: c2)
-
-    // 手机断开
-    let disconnect = frame(opcode: 0x81, body: [])
-
-    for (label, packet) in [("Connect", connect), ("事件报告", eventPut), ("断开", disconnect)] {
-        let d = mnsDecide(packet, connID: &connID)
-        print("== \(label)（\(packet.count) 字节）")
-        print("   应答 \(String(format: "0x%02X", d.code))   会话号 \(hex(connID))\(d.close ? "   关闭通道" : "")")
-        for l in d.lines { print("   \(l)") }
-        if let e = d.event { print("   → 触发同步：\(e)") }
-    }
-    exit(0)
-}
-
-// 本地自检：把几种候选字典按 plist 打出来，不碰蓝牙
-if args.contains("--dump-sdp") {
-    let candidates: [(NumStyle, PdlStyle, Bool)] = [
-        (.dictSize, .nestedDict, true),
-        (.typed, .nestedDict, true),
-        (.number, .nestedDict, true),
-        (.dictPlain, .nestedDict, true),
-        (.dictSize, .nestedDict, false),
-    ]
-    for (i, c) in candidates.enumerated() {
-        print("===== 候选 \(i + 1)：\(c.0.rawValue) + \(c.1.rawValue)\(c.2 ? " + Profile" : "") =====")
-        let dict = mnsServiceDict(channel: MNS_RFCOMM_CHANNEL, num: c.0, style: c.1, includeProfile: c.2)
-        if let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0),
-           let text = String(data: data, encoding: .utf8) {
-            print(text)
-        } else {
-            print("（打不出来）")
-        }
-    }
-    exit(0)
-}
-
-// 只跑 MNS 服务端：发布 SDP 记录并守着，看手机能不能主动连过来。不碰 MAP 会话。
-if let i = args.firstIndex(of: "--mns-hold") {
-    let secs = i + 1 < args.count ? (Double(args[i + 1]) ?? 150) : 150
-    print("只跑 MNS 服务端，保持 \(Int(secs)) 秒")
-    print("")
-
-    let mns = MnsServer()
-    mns.start { detail in
-        print("  [MNS] 事件：\(detail)")
-    }
-    print("")
-
-    var left = secs
-    let timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
-        left -= 15
-        print("  · 还剩 \(Int(max(left, 0))) 秒，入站连接 \(mns.incomingCount) 次")
-    }
-    RunLoop.current.add(timer, forMode: .default)
-    RunLoop.current.run(until: Date().addingTimeInterval(secs))
-    print("")
-    print("结束：入站连接共 \(mns.incomingCount) 次")
-    exit(0)
-}
-
-let once = args.contains("--once")
-let reset = args.contains("--reset")
-if args.contains("--no-mns") { mnsEnabled = false }
-if let i = args.firstIndex(of: "--interval"), i + 1 < args.count,
-   let v = Double(args[i + 1]), v >= 1 {
-    pollInterval = v
-    args.removeSubrange(i...(i + 1))
-}
-if let i = args.firstIndex(of: "--limit"), i + 1 < args.count,
-   let v = UInt16(args[i + 1]), v >= 1 {
-    listingLimit = v
-    args.removeSubrange(i...(i + 1))
-}
-args.removeAll { $0.hasPrefix("--") }
-
-emit("========================================")
-emit(" 鸿蒙短信 → Mac 同步")
-emit("========================================")
-
-// 通知身份：先问一次授权，之后新短信就能以 App 的名义弹出来
-Notifier.shared.prepare()
-
-guard let store = Store(path: DB_PATH) else { exit(1) }
-
-if reset {
-    store.exec("DELETE FROM seen_handle; DELETE FROM message; DELETE FROM sync_state;")
-    emit("已清空本地记录")
-}
-
-let target = args.count > 0 ? args[0] : DEVICE_DEFAULT
-var channelID: BluetoothRFCOMMChannelID = CHANNEL_DEFAULT
-if args.count > 1, let v = UInt8(args[1]) { channelID = v }
-
-guard let device = IOBluetoothDevice(addressString: target) else {
-    emit("✗ 设备对象构造失败：\(target)")
-    exit(1)
-}
-
-let bootstrapped = store.state("bootstrap_at") != nil
-emit("设备     : \(device.name ?? "?")")
-emit("通道     : \(channelID)")
-emit("数据库   : \(DB_PATH)")
-emit("轮询间隔 : \(Int(pollInterval)) 秒")
-emit("每轮条数 : \(listingLimit) 条")
-emit("模式     : \(once ? "只跑一轮" : "持续轮询")")
-emit("事件订阅 : \(mnsEnabled ? "开启（Mac 作 MNS 服务端）" : "关闭")")
-emit("基线     : \(bootstrapped ? "已建立，只处理新短信" : "未建立，本轮只记录不通知")")
-emit("")
-
-let sync = Sync(store: store, device: device, channelID: channelID, once: once)
-sync.baseline = !bootstrapped
-
-if mnsEnabled {
-    emit("启动 MNS 服务端：发布 SDP 记录并监听")
-    let mns = MnsServer()
-    mns.ignoreChannelID = channelID
-    mns.start { detail in
-        sync.pollNow(detail)
-    }
-    emit("")
-}
-
-sync.start()
-
-// 心跳：每 10 秒报一次状态，卡住的时候也能从日志里看出来
-if !once {
-    let timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
-        sync.heartbeat()
-    }
-    RunLoop.current.add(timer, forMode: .default)
-}
-
-CFRunLoopRun()
-
-emit("")
-emit("=== 结束 ===")
-emit("已见 handle \(store.count("seen_handle")) 条，本地短信 \(store.count("message")) 条")

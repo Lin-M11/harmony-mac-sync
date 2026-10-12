@@ -1012,8 +1012,8 @@ $ HarmonySync --mns-selftest
 
 | 文件 | 作用 |
 |---|---|
-| `harmony_sync.swift` | 客户端：增量同步 → 系统通知 → 落库 |
-| `make_icon.swift` | 图标生成：CoreGraphics 画十种尺寸，合成 `AppIcon.icns` |
+| `HarmonyCore.swift` | 引擎：增量同步 → 系统通知 → 落库 |
+| `make_icon.swift` | 图标生成：CoreGraphics 画 App 图标与菜单栏模板图，合成 `AppIcon.icns` |
 | `build.sh` | 编译客户端并组装成 `HarmonySync.app`（蓝牙用途说明 + 图标 + ad-hoc 签名） |
 | `run_sync.command` | 双击启动：增量同步，日志同步落盘 |
 | `run_fast_sync.command` | 双击启动：间隔 2 秒的秒级轮询，跑 4 分钟 |
@@ -1031,7 +1031,7 @@ git show <提交>:harmony-mac-sync/sdp_pub_diag.swift > sdp_pub_diag.swift   # �
 
 **启动方式**：双击 `HarmonySync.app` 即以后台形态常驻，不占 Dock 图标；想看日志就双击 `run_sync.command`（增量同步）或 `run_fast_sync.command`（秒级轮询，跑 4 分钟），日志同时落在 `/tmp/harmony_sync_result.txt`。通知自检双击 `run_notify_check.command`。蓝牙权限记在启动进程上：双击 `.command` 时归到 Terminal，双击 `HarmonySync.app` 时归到 App 自己（`Info.plist` 里已声明用途说明），两种方式都能正常弹窗授权。
 
-`harmony_sync.swift` 支持几个参数：
+命令行入口 `HarmonyCLI.swift` 支持几个参数：
 
 | 参数 | 作用 |
 |---|---|

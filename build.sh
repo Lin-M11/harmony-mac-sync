@@ -11,7 +11,7 @@ set -e
 cd "$(dirname "$0")"
 
 NAME=HarmonySync
-SRC=harmony_sync.swift
+SRC="HarmonyCore.swift HarmonyCLI.swift"
 DISPLAY_NAME="鸿蒙短信同步"
 DESC="用于连接手机并读取短信与通知"
 
@@ -25,7 +25,7 @@ if [[ -f make_icon.swift ]]; then
 fi
 
 echo "== $NAME"
-xcrun swiftc -O -framework IOBluetooth -lsqlite3 -o "$NAME.bin" "$SRC"
+xcrun swiftc -parse-as-library -O -framework IOBluetooth -lsqlite3 -o "$NAME.bin" $=SRC
 
 # 就地覆盖：包里只有可执行文件、图标、Info.plist 和签名，逐项重写即可。
 # 逐项重写能避开批量删除保护，也不会留下半截目录。
