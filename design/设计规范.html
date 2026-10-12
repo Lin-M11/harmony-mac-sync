@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鸿蒙短信同步 · 设计规范</title>
+<style>
+  :root {
+    --bg: #FAF9F7;
+    --surface: #FFFFFF;
+    --chrome: #F3F1ED;
+    --hover: #EFEDE8;
+    --line: #E4E1DA;
+    --line-strong: #CFCCC4;
+    --ink: #1B1D1C;
+    --ink-2: #4A4F4C;
+    --ink-3: #636865;
+    --accent: #1D6B54;
+    --accent-soft: #E3F0EB;
+    --wait: #8A6A1F;
+    --danger: #A93B36;
+    --shadow: 0 1px 2px rgba(27,29,28,.06), 0 6px 16px -4px rgba(27,29,28,.10);
+
+    --t-cap: 12px;
+    --t-body: 14px;
+    --t-title: 16px;
+    --t-window: 18px;
+
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+    --r-ctl: 6px; --r-row: 10px; --r-panel: 14px;
+
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  [data-theme="dark"] {
+    --bg: #17181A;
+    --surface: #1E2022;
+    --chrome: #212325;
+    --hover: #2A2C2E;
+    --line: #33363A;
+    --line-strong: #45484C;
+    --ink: #F0F1EF;
+    --ink-2: #C3C6C3;
+    --ink-3: #8E938F;
+    --accent: #4FBF9A;
+    --accent-soft: #1C3A32;
+    --wait: #D8AC53;
+    --danger: #E0776F;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 16px -4px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--t-body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet { max-width: 940px; margin: 0 auto; padding: var(--s6) var(--s5) 96px; }
+
+  .sheet-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4); }
+  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; margin: 0; }
+  .sheet-head p { color: var(--ink-3); margin: var(--s1) 0 0; }
+
+  .theme-switch { display: flex; gap: 2px; background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 2px; }
+  .theme-switch button {
+    font: inherit; font-size: var(--t-cap); color: var(--ink-2);
+    background: transparent; border: 0; border-radius: 4px; padding: 3px 10px; cursor: pointer;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 1px rgba(0,0,0,.06); }
+
+  section { margin-top: var(--s6); padding-top: var(--s5); border-top: 1px solid var(--line); }
+  h2 { font-size: var(--t-title); font-weight: 500; margin: 0 0 var(--s2); }
+  .lede { color: var(--ink-2); margin: 0 0 var(--s4); max-width: 68ch; }
+
+  h3 { font-size: var(--t-body); font-weight: 500; margin: var(--s5) 0 var(--s2); }
+  h3:first-of-type { margin-top: var(--s4); }
+
+  /* 令牌表 */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-weight: 500; font-size: var(--t-cap); color: var(--ink-3); }
+  td.val { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  td.ratio { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .swatch { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line-strong); display: inline-block; vertical-align: middle; }
+
+  /* 母题 */
+  .mark-row { display: flex; align-items: center; gap: var(--s5); flex-wrap: wrap; }
+  .mark-box { display: flex; align-items: center; gap: var(--s3); }
+  .mark-box span { color: var(--ink-3); font-size: var(--t-cap); }
+  .mark svg { display: block; }
+
+  /* 组件样本 */
+  .specimen { background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-panel); padding: var(--s5); display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .specimen-label { font-size: var(--t-cap); color: var(--ink-3); margin-bottom: var(--s2); }
+
+  /* 菜单栏面板 */
+  .panel {
+    width: 300px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-panel); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .panel-head { padding: var(--s3) var(--s4); display: flex; align-items: center; gap: var(--s2); border-bottom: 1px solid var(--line); }
+  .panel-head .who { font-weight: 500; }
+  .panel-head .sub { color: var(--ink-3); font-size: var(--t-cap); }
+  .panel-body { padding: var(--s2) 0; }
+  .panel-foot { padding: var(--s2) var(--s3) var(--s3); border-top: 1px solid var(--line); }
+
+  .row { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4); }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .grow { flex: 1; min-width: 0; }
+  .row .label { font-weight: 500; }
+  .row .hint { color: var(--ink-3); font-size: var(--t-cap); }
+
+  /* 开关 */
+  .sw { width: 32px; height: 20px; border-radius: 10px; background: var(--line-strong); position: relative; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+  .sw[data-on="true"] { background: var(--accent); }
+  .sw[data-on="true"]::after { transform: translateX(12px); }
+  .sw[data-off="true"] { background: var(--line-strong); opacity: .5; }
+  .sw[data-off="true"]::after { opacity: .8; }
+
+  /* 状态行 */
+  .state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-cap); }
+  .state i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+  .state.on { color: var(--accent); }
+  .state.on i { background: var(--accent); }
+  .state.off { color: var(--ink-3); }
+  .state.off i { background: var(--line-strong); }
+  .state.wait { color: var(--wait); }
+  .state.wait i { background: var(--wait); }
+
+  /* 按钮 */
+  .btn { font: inherit; font-size: var(--t-cap); border-radius: var(--r-ctl); padding: 4px 12px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  [data-theme="dark"] .btn.primary { color: #10120F; }
+  .btn.quiet { background: transparent; border-color: transparent; color: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  /* 消息窗口 */
+  .win { width: 560px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow); overflow: hidden; }
+  .win-bar { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); display: flex; gap: var(--s2); align-items: center; }
+  .field { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 4px 8px; }
+  .field input { font: inherit; font-size: var(--t-cap); border: 0; background: transparent; color: var(--ink); outline: none; width: 100%; }
+  .field input::placeholder { color: var(--ink-3); }
+  .chips { display: flex; gap: 4px; }
+  .chip { font-size: var(--t-cap); color: var(--ink-2); background: var(--chrome); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+  .day { padding: var(--s3) var(--s4) var(--s1); font-size: var(--t-cap); color: var(--ink-3); background: var(--bg); position: sticky; top: 0; }
+  .msg { padding: var(--s3) var(--s4); display: flex; gap: var(--s3); }
+  .msg + .msg { border-top: 1px solid var(--line); }
+  .msg:hover { background: var(--hover); }
+  .msg[data-selected="true"] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  .msg .from { width: 108px; flex: none; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg .text { flex: 1; min-width: 0; color: var(--ink-2); }
+  .msg .time { flex: none; color: var(--ink-3); font-size: var(--t-cap); font-variant-numeric: tabular-nums; }
+
+  .code { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-ctl); padding: 1px 6px; font-family: var(--mono); font-size: 12px; }
+  .code button { font: inherit; font-size: 11px; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; }
+
+  /* 空状态 */
+  .empty { padding: var(--s6) var(--s5); text-align: center; }
+  .empty h3 { margin: var(--s4) 0 var(--s1); }
+  .empty p { margin: 0 auto var(--s4); color: var(--ink-3); max-width: 40ch; }
+
+  ul.notes { margin: var(--s2) 0 0; padding-left: 18px; color: var(--ink-2); }
+  ul.notes li { margin: 3px 0; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--chrome); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="sheet-head">
+    <div>
+      <h1>鸿蒙短信同步 · 设计规范</h1>
+      <p>原生 macOS 菜单栏应用。视觉世界：仪表。读得快是因为有序，不是因为响。</p>
+    </div>
+    <div class="theme-switch">
+      <button type="button" data-set="light" aria-pressed="true">浅色</button>
+      <button type="button" data-set="dark" aria-pressed="false">深色</button>
+    </div>
+  </div>
+
+  <section>
+    <h2>母题：一条链路把两边连起来</h2>
+    <p class="lede">左边是手机（窄、实心、内容源），右边是 Mac（宽、描边、接收端），中间是链路。这个标记同时承担三件事：App 图标、菜单栏图标、界面里的连接状态指示。链路通就是实线着主色，断了就是虚线转灰。</p>
+    <div class="mark-row">
+      <div class="mark-box">
+        <span class="mark">
+          <svg width="46" height="27" viewBox="0 0 46 27" fill="none" aria-label="链路通">
+            <rect x="1" y="6" width="9" height="15" rx="2.5" fill="currentColor"/>
+            <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="1.6"/>
+            <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+        </span>
+        <span>链路通</span>
+      </div>
+      <div class="mark-box">
+        <span class="mark" style="color: var(--ink-3)">
+          <svg width="46" height="27" viewBox="0 0 46 27" fill="none" aria-label="链路断">
+            <rect x="1" y="6" width="9" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/>
+            <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="1.6"/>
+          </svg>
+        </span>
+        <span>链路断</span>
+      </div>
+      <div class="mark-box">
+        <span class="mark" style="color: var(--ink)">
+          <svg width="24" height="24" viewBox="0 0 46 27" fill="none" aria-label="菜单栏尺寸">
+            <rect x="1" y="6" width="9" height="15" rx="2.5" fill="currentColor"/>
+            <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="2.4"/>
+            <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="2.4"/>
+          </svg>
+        </span>
+        <span>菜单栏尺寸（18pt 模板图，单色随系统明暗反相）</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>色板</h2>
+    <p class="lede">克制用色。主色只出现在三处：连接状态、主操作、当前选中。中性灰一律带暖调，不用纯灰。下方对比度是对本底色的实测值。</p>
+
+    <h3>底色与层次</h3>
+    <table>
+      <thead><tr><th style="width:44px"></th><th>令牌</th><th>值</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:var(--bg)"></span></td><td><code>--bg</code></td><td class="val">#FAF9F7 / #17181A</td><td>窗口底、搜索框内底</td></tr>
+        <tr><td><span class="swatch" style="background:var(--surface)"></span></td><td><code>--surface</code></td><td class="val">#FFFFFF / #1E2022</td><td>内容面、面板、列表</td></tr>
+        <tr><td><span class="swatch" style="background:var(--chrome)"></span></td><td><code>--chrome</code></td><td class="val">#F3F1ED / #212325</td><td>工具栏、面板头、次级面</td></tr>
+        <tr><td><span class="swatch" style="background:var(--hover)"></span></td><td><code>--hover</code></td><td class="val">#EFEDE8 / #2A2C2E</td><td>列表行悬停</td></tr>
+        <tr><td><span class="swatch" style="background:var(--line)"></span></td><td><code>--line</code></td><td class="val">#E4E1DA / #33363A</td><td>分隔线、描边</td></tr>
+      </tbody>
+    </table>
+
+    <h3>文字</h3>
+    <table>
+      <thead><tr><th style="width:44px"></th><th>令牌</th><th>值</th><th>对比度</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:var(--ink)"></span></td><td><code>--ink</code></td><td class="val">#1B1D1C / #F0F1EF</td><td class="ratio">15.6:1 / 15.9:1</td><td>标题、发件人、开关标签</td></tr>
+        <tr><td><span class="swatch" style="background:var(--ink-2)"></span></td><td><code>--ink-2</code></td><td class="val">#4A4F4C / #C3C6C3</td><td class="ratio">7.9:1 / 10.3:1</td><td>短信正文、说明文字</td></tr>
+        <tr><td><span class="swatch" style="background:var(--ink-3)"></span></td><td><code>--ink-3</code></td><td class="val">#6B706D / #8E938F</td><td class="ratio">4.8:1 / 5.7:1</td><td>时间、占位符、次级说明</td></tr>
+      </tbody>
+    </table>
+
+    <h3>语义色</h3>
+    <table>
+      <thead><tr><th style="width:44px"></th><th>令牌</th><th>值</th><th>对比度</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:var(--accent)"></span></td><td><code>--accent</code></td><td class="val">#1D6B54 / #4FBF9A</td><td class="ratio">6.1:1 / 7.8:1</td><td>链路通、主按钮、验证码</td></tr>
+        <tr><td><span class="swatch" style="background:var(--accent-soft)"></span></td><td><code>--accent-soft</code></td><td class="val">#E3F0EB / #1C3A32</td><td class="ratio">不适用</td><td>选中行底、验证码底</td></tr>
+        <tr><td><span class="swatch" style="background:var(--wait)"></span></td><td><code>--wait</code></td><td class="val">#8A6A1F / #D8AC53</td><td class="ratio">4.8:1 / 8.4:1</td><td>连接中、同步中</td></tr>
+        <tr><td><span class="swatch" style="background:var(--danger)"></span></td><td><code>--danger</code></td><td class="val">#A93B36 / #E0776F</td><td class="ratio">5.9:1 / 6.0:1</td><td>连接失败、同步出错</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>字阶与节奏</h2>
+    <p class="lede">单一字族，用系统字体。这是原生应用该有的样子，也是 Operate 模式下的正解。固定字阶，不用流式缩放。数字一律用等宽数字，好让时间戳竖着对齐。</p>
+    <table>
+      <thead><tr><th>层级</th><th>字号 / 字重</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td style="font-size:18px;font-weight:500">窗口标题</td><td class="val">18px / 500</td><td>「消息记录」窗口标题</td></tr>
+        <tr><td style="font-size:16px;font-weight:500">区块标题</td><td class="val">16px / 500</td><td>面板分区、日期分组</td></tr>
+        <tr><td style="font-size:14px;font-weight:400">正文</td><td class="val">14px / 400</td><td>短信正文、说明</td></tr>
+        <tr><td style="font-size:14px;font-weight:500">强调正文</td><td class="val">14px / 500</td><td>发件人、开关标签</td></tr>
+        <tr><td style="font-size:12px;font-weight:400;color:var(--ink-3)">辅助</td><td class="val">12px / 400</td><td>时间、状态、占位符</td></tr>
+      </tbody>
+    </table>
+
+    <h3>间距与圆角</h3>
+    <p class="lede">间距按 4 的倍数：<code>4 / 8 / 12 / 16 / 24 / 32</code>。圆角三档：控件 <code>6px</code>、列表行 <code>10px</code>、面板 <code>14px</code>。分组内紧、组间松；标题上方的留白多于下方。</p>
+  </section>
+
+  <section>
+    <h2>菜单栏面板</h2>
+    <p class="lede">点菜单栏图标弹出的面板。三段：手机与链路状态、两个监听开关、最近两条短信。关掉「短信监听」即断开蓝牙连接，所以它和连接状态放在同一段里，因果关系一眼可见。</p>
+
+    <div class="specimen">
+      <div>
+        <div class="specimen-label">已连接 · 两个监听都开着</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="mark" style="color:var(--accent)">
+              <svg width="22" height="13" viewBox="0 0 46 27" fill="none">
+                <rect x="1" y="6" width="9" height="15" rx="2.5" fill="currentColor"/>
+                <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="2.4"/>
+                <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="2.4"/>
+              </svg>
+            </span>
+            <span class="grow">
+              <span class="who">HUAWEI Pura 80 Pro</span><br>
+              <span class="sub">链路已建立 · 信号 4/5</span>
+            </span>
+            <span class="state on"><i></i>已连接</span>
+          </div>
+          <div class="panel-body">
+            <div class="row">
+              <span class="grow"><span class="label">短信监听</span><br><span class="hint">新短信到达即同步并弹通知</span></span>
+              <span class="sw" data-on="true"></span>
+            </div>
+            <div class="row">
+              <span class="grow"><span class="label">通话监听</span><br><span class="hint">来电提醒与在 Mac 上接听</span></span>
+              <span class="sw" data-on="true"></span>
+            </div>
+          </div>
+          <div class="panel-body" style="border-top:1px solid var(--line)">
+            <div class="row" style="padding-top:10px;padding-bottom:4px">
+              <span class="grow hint">最近收到</span>
+              <span class="hint">2 条</span>
+            </div>
+            <div class="row" style="align-items:flex-start">
+              <span class="grow">
+                <span class="label">美团</span><br>
+                <span class="hint">您的验证码是 847291，5 分钟内有效</span>
+              </span>
+              <span class="hint" style="font-variant-numeric:tabular-nums">10:42</span>
+            </div>
+            <div class="row" style="align-items:flex-start">
+              <span class="grow">
+                <span class="label">招商银行</span><br>
+                <span class="hint">您尾号 6688 账户入账 3,200.00 元</span>
+              </span>
+              <span class="hint" style="font-variant-numeric:tabular-nums">09:15</span>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <div style="display:flex;gap:6px">
+              <button class="btn primary" style="flex:1">打开消息记录</button>
+              <button class="btn">断开</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="specimen-label">未连接 · 首次使用</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="mark" style="color:var(--ink-3)">
+              <svg width="22" height="13" viewBox="0 0 46 27" fill="none">
+                <rect x="1" y="6" width="9" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
+                <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="2.4" stroke-dasharray="3 3"/>
+                <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="2.4"/>
+              </svg>
+            </span>
+            <span class="grow">
+              <span class="who">尚未连接手机</span><br>
+              <span class="sub">连上后短信会自动同步过来</span>
+            </span>
+          </div>
+          <div class="panel-body">
+            <div class="row">
+              <span class="grow"><span class="label">短信监听</span><br><span class="hint">连接手机后才能打开</span></span>
+              <span class="sw" data-off="true"></span>
+            </div>
+            <div class="row">
+              <span class="grow"><span class="label">通话监听</span><br><span class="hint">连接手机后才能打开</span></span>
+              <span class="sw" data-off="true"></span>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <button class="btn primary" style="width:100%">连接手机…</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="specimen-label">连接中</div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="grow">
+              <span class="who">HUAWEI Pura 80 Pro</span><br>
+              <span class="sub">正在建立链路…</span>
+            </span>
+            <span class="state wait"><i></i>连接中</span>
+          </div>
+          <div class="panel-body">
+            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:4px;max-width:150px"></span></div>
+            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:4px;max-width:110px"></span></div>
+          </div>
+          <div class="panel-foot">
+            <button class="btn" style="width:100%" disabled>连接手机…</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>消息记录窗口</h2>
+    <p class="lede">独立窗口，从面板打开。搜索框常驻在工具栏，日期筛选做成胶囊。列表按天分组，每天一个小标题。验证码自动认出来，点一下复制。</p>
+
+    <div class="specimen">
+      <div class="win">
+        <div class="win-bar">
+          <span class="field">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="color:var(--ink-3)"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="搜发件人或正文" value="验证码">
+          </span>
+          <span class="chips">
+            <span class="chip" aria-pressed="true">今天</span>
+            <span class="chip">近 7 天</span>
+            <span class="chip">全部</span>
+          </span>
+        </div>
+
+        <div class="day">今天 · 10 月 12 日</div>
+
+        <div class="msg" data-selected="true">
+          <span class="from">美团</span>
+          <span class="text">您的验证码是 <span class="code">847291 <button type="button">复制</button></span>，5 分钟内有效。请勿泄露给任何人。</span>
+          <span class="time">10:42</span>
+        </div>
+
+        <div class="msg">
+          <span class="from">招商银行</span>
+          <span class="text">您尾号 6688 账户入账 3,200.00 元，余额 18,460.22 元。</span>
+          <span class="time">09:15</span>
+        </div>
+
+        <div class="msg">
+          <span class="from">138 0013 8000</span>
+          <span class="text">晚上七点老地方，别迟到。</span>
+          <span class="time">08:03</span>
+        </div>
+
+        <div class="day">昨天 · 10 月 11 日</div>
+
+        <div class="msg">
+          <span class="from">顺丰速运</span>
+          <span class="text">您的快件已放在丰巢柜 A-12，取件码 4471。</span>
+          <span class="time">19:28</span>
+        </div>
+
+        <div class="msg">
+          <span class="from">中国联通</span>
+          <span class="text">您本月流量已用 12.4GB，剩余 7.6GB。</span>
+          <span class="time">11:02</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="specimen-label">空状态</div>
+        <div class="win" style="width:300px">
+          <div class="win-bar"><span class="field"><input type="text" placeholder="搜发件人或正文"></span></div>
+          <div class="empty">
+            <span class="mark" style="color:var(--line-strong);display:inline-block">
+              <svg width="46" height="27" viewBox="0 0 46 27" fill="none">
+                <rect x="1" y="6" width="9" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/>
+                <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="1.6"/>
+              </svg>
+            </span>
+            <h3>还没有短信</h3>
+            <p>先在面板里连上手机。连上之后新来的短信会出现在这里，手机上的旧短信不会搬过来。</p>
+            <button class="btn primary">连接手机…</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>状态与动效</h2>
+    <p class="lede">每个可交互控件都要有完整状态：默认、悬停、聚焦、按下、禁用、加载、出错。动效只用来传达状态变化，不做装饰；时长 150–250ms，指数缓出。加载用骨架屏，不用转圈。</p>
+    <ul class="notes">
+      <li>开关切换：滑块位移 180ms，指数缓出，从当前状态直接过渡，不做回弹。</li>
+      <li>链路状态变化：状态点与文字一起变，不加闪烁或脉冲。</li>
+      <li>新短信到达：列表行淡入 200ms，同时滚动到顶部；不做整页重排。</li>
+      <li>尊重系统「减弱动态效果」：打开时所有位移改为瞬时。</li>
+      <li>复制验证码后，按钮文字在 1.2 秒内变成「已复制」再变回，给一次明确回执。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>落地约定</h2>
+    <ul class="notes">
+      <li>字体用系统字体（SF Pro / PingFang SC），不引入自定义字族。</li>
+      <li>深浅色两套取值都在上面的表里，SwiftUI 侧用 Asset Catalog 或代码里的条件色实现。</li>
+      <li>所有文字与背景的对比度已实测，最低 4.8:1，满足 WCAG AA。</li>
+      <li>时间与数值一律 <code>font-variant-numeric: tabular-nums</code>。</li>
+      <li>图标一律自绘 SVG 或 SF Symbols，不用 emoji 充当图标。</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+  document.querySelectorAll('.theme-switch button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var theme = b.dataset.set;
+      document.documentElement.dataset.theme = theme;
+      document.querySelectorAll('.theme-switch button').forEach(function (o) {
+        o.setAttribute('aria-pressed', String(o === b));
+      });
+    });
+  });
+</script>
+</body>
+</html>
