@@ -1023,8 +1023,8 @@ $ HarmonySync --mns-selftest
 **验证阶段的探针**（SDP 查询与发布、OBEX 报文、列表解析、手机能力，共 12 个 `.swift` 与 8 个 `.command`）用于逐项取证，取证结果已收进 §7.1–§7.4。它们不在当前工作树里，源码保留在 git 历史中：
 
 ```bash
-git log --oneline -- harmony-mac-sync/sdp_pub_diag.swift    # 找到引入它的提交
-git checkout <提交> -- harmony-mac-sync/sdp_pub_diag.swift  # 取回单个文件
+git log --oneline -- 'harmony-mac-sync/sdp_pub_diag.swift'   # 查历史（迁移前它在子目录里）
+git show <提交>:harmony-mac-sync/sdp_pub_diag.swift > sdp_pub_diag.swift   # 按当前布局取回
 ```
 
 **构建**：`./build.sh` 编译客户端并组装成 `HarmonySync.app`（带蓝牙用途说明 + 图标 + ad-hoc 签名），末尾向 LaunchServices 登记。图标由 `make_icon.swift` 生成，`build.sh` 会自动调用。

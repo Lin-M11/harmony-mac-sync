@@ -16,7 +16,7 @@ Mac 作为蓝牙客户端，直连手机暴露的标准蓝牙服务，手机端�
 
 V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询收件箱 → 只对新增短信弹通知并落库。
 
-![手机收到短信后，Mac 上弹出的系统通知](harmony-mac-sync/assets/notification.png)
+![手机收到短信后，Mac 上弹出的系统通知](assets/notification.png)
 
 *手机上收到的小红书验证码短信，几秒后在 Mac 上弹成系统通知——图标来自 App，标题是发件号码，正文是短信内容。*
 
@@ -29,29 +29,28 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 
 | 路径 | 说明 |
 |---|---|
-| `harmony-mac-sync/鸿蒙7-Mac消息同步-技术方案.md` | 完整技术方案与验证记录 |
-| `harmony-mac-sync/harmony_sync.swift` | 客户端：增量同步 + 系统通知 + 落库 |
-| `harmony-mac-sync/make_icon.swift` | 图标生成（CoreGraphics → icns） |
-| `harmony-mac-sync/build.sh` | 编译客户端并组装成 `HarmonySync.app` |
-| `harmony-mac-sync/run_sync.command` | 双击启动：增量同步 |
-| `harmony-mac-sync/run_fast_sync.command` | 双击启动：秒级轮询 |
-| `harmony-mac-sync/run_notify_check.command` | 双击运行：通知自检 |
-| `harmony-mac-sync/assets/notification.png` | 上面那张通知截图 |
+| `鸿蒙7-Mac消息同步-技术方案.md` | 完整技术方案与验证记录 |
+| `harmony_sync.swift` | 客户端：增量同步 + 系统通知 + 落库 |
+| `make_icon.swift` | 图标生成（CoreGraphics → icns） |
+| `build.sh` | 编译客户端并组装成 `HarmonySync.app` |
+| `run_sync.command` | 双击启动：增量同步 |
+| `run_fast_sync.command` | 双击启动：秒级轮询 |
+| `run_notify_check.command` | 双击运行：通知自检 |
+| `assets/notification.png` | 上面那张通知截图 |
 
-验证阶段的探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力）已从工作树移除，取证结果收在技术方案 §7.1–§7.4；源码在 git 历史里，需要时 `git checkout <提交> -- <路径>` 取回。
+验证阶段的探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力）已从工作树移除，取证结果收在技术方案 §7.1–§7.4。源码在 git 历史里，取回方式见技术方案 §7.7。
 
 ## 构建
 
 ```bash
-cd harmony-mac-sync
 ./build.sh
 ```
 
-每个目标先编成 `xxx.bin`，再各自组装成 `xxx.app`（带蓝牙用途说明、图标与 ad-hoc 签名）。
+客户端编成 `HarmonySync.bin`，再组装成 `HarmonySync.app`（带蓝牙用途说明、图标与 ad-hoc 签名），末尾向 LaunchServices 登记。
 
 ## 运行
 
-双击 `harmony-mac-sync/HarmonySync.app` 即以后台形态常驻，不占 Dock 图标。想看日志就双击 `run_sync.command`（增量同步）或 `run_fast_sync.command`（秒级轮询，跑 4 分钟），日志同时落在 `/tmp/harmony_sync_result.txt`。也可以直接跑：
+双击 `HarmonySync.app` 即以后台形态常驻，不占 Dock 图标。想看日志就双击 `run_sync.command`（增量同步）或 `run_fast_sync.command`（秒级轮询，跑 4 分钟），日志同时落在 `/tmp/harmony_sync_result.txt`。也可以直接跑：
 
 ```bash
 ./HarmonySync.app/Contents/MacOS/HarmonySync                     # 持续同步
@@ -61,7 +60,7 @@ cd harmony-mac-sync
 
 双击 App 启动的是后台进程，退出在「活动监视器」里结束 `HarmonySync`。
 
-首次运行需要在系统询问里允许蓝牙与通知。若错过那次询问，到「系统设置 → 通知」里把「鸿蒙短信同步」的开关打开即可。
+首次运行需要在系统询问里允许蓝牙与通知。若错过那次询问，到「系统设置 → 通知」里把本 App（`HarmonySync`）的开关打开即可。
 
 本地数据：`~/Library/Application Support/HarmonySync/messages.db`（`message` / `seen_handle` / `sync_state` 三张表）
 
