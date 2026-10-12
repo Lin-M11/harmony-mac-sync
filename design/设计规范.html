@@ -19,6 +19,7 @@
     --accent-soft: #E3F0EB;
     --wait: #8A6A1F;
     --danger: #A93B36;
+    --on-accent: #FFFFFF;
     --shadow: 0 1px 2px rgba(27,29,28,.06), 0 6px 16px -4px rgba(27,29,28,.10);
 
     --t-cap: 12px;
@@ -27,7 +28,7 @@
     --t-window: 18px;
 
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
-    --r-ctl: 6px; --r-row: 10px; --r-panel: 14px;
+    --r-ctl: 6px; --r-row: 10px; --r-panel: 14px; --r-pill: 999px;
 
     --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -47,6 +48,7 @@
     --accent-soft: #1C3A32;
     --wait: #D8AC53;
     --danger: #E0776F;
+    --on-accent: #10120F;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 16px -4px rgba(0,0,0,.5);
   }
 
@@ -64,15 +66,15 @@
   .sheet { max-width: 940px; margin: 0 auto; padding: var(--s6) var(--s5) 96px; }
 
   .sheet-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4); }
-  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; margin: 0; }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
   .sheet-head p { color: var(--ink-3); margin: var(--s1) 0 0; }
 
   .theme-switch { display: flex; gap: 2px; background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 2px; }
   .theme-switch button {
     font: inherit; font-size: var(--t-cap); color: var(--ink-2);
-    background: transparent; border: 0; border-radius: 4px; padding: 3px 10px; cursor: pointer;
+    background: transparent; border: 0; border-radius: var(--r-ctl); padding: 3px 10px; cursor: pointer;
   }
-  .theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 1px rgba(0,0,0,.06); }
+  .theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
 
   section { margin-top: var(--s6); padding-top: var(--s5); border-top: 1px solid var(--line); }
   h2 { font-size: var(--t-title); font-weight: 500; margin: 0 0 var(--s2); }
@@ -136,8 +138,7 @@
 
   /* 按钮 */
   .btn { font: inherit; font-size: var(--t-cap); border-radius: var(--r-ctl); padding: 4px 12px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  [data-theme="dark"] .btn.primary { color: #10120F; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .btn.quiet { background: transparent; border-color: transparent; color: var(--accent); }
   .btn:disabled { opacity: .4; cursor: default; }
 
@@ -148,7 +149,7 @@
   .field input { font: inherit; font-size: var(--t-cap); border: 0; background: transparent; color: var(--ink); outline: none; width: 100%; }
   .field input::placeholder { color: var(--ink-3); }
   .chips { display: flex; gap: 4px; }
-  .chip { font-size: var(--t-cap); color: var(--ink-2); background: var(--chrome); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  .chip { font-size: var(--t-cap); color: var(--ink-2); background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 2px 10px; }
   .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
   .day { padding: var(--s3) var(--s4) var(--s1); font-size: var(--t-cap); color: var(--ink-3); background: var(--bg); position: sticky; top: 0; }
@@ -160,8 +161,8 @@
   .msg .text { flex: 1; min-width: 0; color: var(--ink-2); }
   .msg .time { flex: none; color: var(--ink-3); font-size: var(--t-cap); font-variant-numeric: tabular-nums; }
 
-  .code { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-ctl); padding: 1px 6px; font-family: var(--mono); font-size: 12px; }
-  .code button { font: inherit; font-size: 11px; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; }
+  .code { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-ctl); padding: 1px 6px; font-family: var(--mono); font-size: var(--t-cap); }
+  .code button { font: inherit; font-size: var(--t-cap); border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; }
 
   /* 空状态 */
   .empty { padding: var(--s6) var(--s5); text-align: center; }
@@ -170,7 +171,7 @@
 
   ul.notes { margin: var(--s2) 0 0; padding-left: 18px; color: var(--ink-2); }
   ul.notes li { margin: 3px 0; }
-  code { font-family: var(--mono); font-size: 12px; background: var(--chrome); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -189,34 +190,37 @@
 
   <section>
     <h2>母题：一条链路把两边连起来</h2>
-    <p class="lede">左边是手机（窄、实心、内容源），右边是 Mac（宽、描边、接收端），中间是链路。这个标记同时承担三件事：App 图标、菜单栏图标、界面里的连接状态指示。链路通就是实线着主色，断了就是虚线转灰。</p>
+    <p class="lede">左边是手机（窄、实心、内容源），右边是带底座的显示器（宽、描边、接收端），中间一条横条落在两者的共同中线上。这个标记同时承担三件事：App 图标、菜单栏图标、界面里的连接状态指示。链路通就是实线着主色，断了就是虚线转灰。</p>
     <div class="mark-row">
       <div class="mark-box">
         <span class="mark">
-          <svg width="46" height="27" viewBox="0 0 46 27" fill="none" aria-label="链路通">
-            <rect x="1" y="6" width="9" height="15" rx="2.5" fill="currentColor"/>
-            <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="1.6"/>
-            <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="1.6"/>
+          <svg width="46" height="20" viewBox="0 0 512 222" fill="none" aria-label="链路通">
+            <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor"/>
+            <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor"/>
+            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
           </svg>
         </span>
         <span>链路通</span>
       </div>
       <div class="mark-box">
         <span class="mark" style="color: var(--ink-3)">
-          <svg width="46" height="27" viewBox="0 0 46 27" fill="none" aria-label="链路断">
-            <rect x="1" y="6" width="9" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
-            <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/>
-            <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="1.6"/>
+          <svg width="46" height="20" viewBox="0 0 512 222" fill="none" aria-label="链路断">
+            <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22"/>
+            <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24"/>
+            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
           </svg>
         </span>
         <span>链路断</span>
       </div>
       <div class="mark-box">
         <span class="mark" style="color: var(--ink)">
-          <svg width="24" height="24" viewBox="0 0 46 27" fill="none" aria-label="菜单栏尺寸">
-            <rect x="1" y="6" width="9" height="15" rx="2.5" fill="currentColor"/>
-            <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="2.4"/>
-            <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="2.4"/>
+          <svg width="42" height="18" viewBox="0 0 512 222" fill="none" aria-label="菜单栏尺寸">
+            <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor"/>
+            <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor"/>
+            <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+            <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
           </svg>
         </span>
         <span>菜单栏尺寸（18pt 模板图，单色随系统明暗反相）</span>
@@ -246,7 +250,7 @@
       <tbody>
         <tr><td><span class="swatch" style="background:var(--ink)"></span></td><td><code>--ink</code></td><td class="val">#1B1D1C / #F0F1EF</td><td class="ratio">15.6:1 / 15.9:1</td><td>标题、发件人、开关标签</td></tr>
         <tr><td><span class="swatch" style="background:var(--ink-2)"></span></td><td><code>--ink-2</code></td><td class="val">#4A4F4C / #C3C6C3</td><td class="ratio">7.9:1 / 10.3:1</td><td>短信正文、说明文字</td></tr>
-        <tr><td><span class="swatch" style="background:var(--ink-3)"></span></td><td><code>--ink-3</code></td><td class="val">#6B706D / #8E938F</td><td class="ratio">4.8:1 / 5.7:1</td><td>时间、占位符、次级说明</td></tr>
+        <tr><td><span class="swatch" style="background:var(--ink-3)"></span></td><td><code>--ink-3</code></td><td class="val">#636865 / #8E938F</td><td class="ratio">5.4:1 / 5.7:1</td><td>时间、占位符、次级说明</td></tr>
       </tbody>
     </table>
 
@@ -290,10 +294,11 @@
         <div class="panel">
           <div class="panel-head">
             <span class="mark" style="color:var(--accent)">
-              <svg width="22" height="13" viewBox="0 0 46 27" fill="none">
-                <rect x="1" y="6" width="9" height="15" rx="2.5" fill="currentColor"/>
-                <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="2.4"/>
-                <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="2.4"/>
+              <svg width="22" height="10" viewBox="0 0 512 222" fill="none">
+                <rect x="0" y="0" width="108" height="212" rx="26" fill="currentColor"/>
+                <rect x="116" y="95" width="140" height="22" rx="11" fill="currentColor"/>
+                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
               </svg>
             </span>
             <span class="grow">
@@ -346,10 +351,11 @@
         <div class="panel">
           <div class="panel-head">
             <span class="mark" style="color:var(--ink-3)">
-              <svg width="22" height="13" viewBox="0 0 46 27" fill="none">
-                <rect x="1" y="6" width="9" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
-                <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="2.4" stroke-dasharray="3 3"/>
-                <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="2.4"/>
+              <svg width="22" height="10" viewBox="0 0 512 222" fill="none">
+                <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22"/>
+                <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24"/>
+                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
               </svg>
             </span>
             <span class="grow">
@@ -384,8 +390,8 @@
             <span class="state wait"><i></i>连接中</span>
           </div>
           <div class="panel-body">
-            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:4px;max-width:150px"></span></div>
-            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:4px;max-width:110px"></span></div>
+            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:var(--r-ctl);max-width:150px"></span></div>
+            <div class="row"><span class="grow" style="height:14px;background:var(--chrome);border-radius:var(--r-ctl);max-width:110px"></span></div>
           </div>
           <div class="panel-foot">
             <button class="btn" style="width:100%" disabled>连接手机…</button>
@@ -454,10 +460,11 @@
           <div class="win-bar"><span class="field"><input type="text" placeholder="搜发件人或正文"></span></div>
           <div class="empty">
             <span class="mark" style="color:var(--line-strong);display:inline-block">
-              <svg width="46" height="27" viewBox="0 0 46 27" fill="none">
-                <rect x="1" y="6" width="9" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <line x1="13" y1="13.5" x2="25" y2="13.5" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/>
-                <rect x="28" y="4.5" width="17" height="18" rx="3.5" stroke="currentColor" stroke-width="1.6"/>
+              <svg width="46" height="20" viewBox="0 0 512 222" fill="none">
+                <rect x="11" y="11" width="86" height="190" rx="15" stroke="currentColor" stroke-width="22"/>
+                <line x1="116" y1="106" x2="256" y2="106" stroke="currentColor" stroke-width="22" stroke-dasharray="32 24"/>
+                <rect x="275" y="33" width="226" height="146" rx="11" stroke="currentColor" stroke-width="22"/>
+                <path d="M361 190 H415 L438 222 H338 Z" fill="currentColor"/>
               </svg>
             </span>
             <h3>还没有短信</h3>

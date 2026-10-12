@@ -30,15 +30,20 @@ V1 可用：连上手机 → 建立基线（已有短信不通知）→ 轮询�
 | 路径 | 说明 |
 |---|---|
 | `鸿蒙7-Mac消息同步-技术方案.md` | 完整技术方案与验证记录 |
+| `PRODUCT.md` | 产品真值：平台、技术栈、能力与边界 |
+| `DESIGN.md` | 视觉系统：颜色、字阶、圆角、间距、组件令牌 |
+| `design/设计规范.html` | 设计规范的实物样本，深浅两套取值可切换 |
 | `harmony_sync.swift` | 客户端：增量同步 + 系统通知 + 落库 |
-| `make_icon.swift` | 图标生成（CoreGraphics → icns） |
+| `hfp_probe.swift` | 通话探针：验证在 Mac 上接电话、通话音频走电脑 |
+| `make_icon.swift` | 图标生成：App 图标 + 菜单栏模板图（链路通 / 断各一套） |
 | `build.sh` | 编译客户端并组装成 `HarmonySync.app` |
 | `run_sync.command` | 双击启动：增量同步 |
 | `run_fast_sync.command` | 双击启动：秒级轮询 |
 | `run_notify_check.command` | 双击运行：通知自检 |
+| `run_hfp_probe.command` | 双击运行：通话探针 |
 | `assets/notification.png` | 上面那张通知截图 |
 
-验证阶段的探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力）已从工作树移除，取证结果收在技术方案 §7.1–§7.4。源码在 git 历史里，取回方式见技术方案 §7.7。
+验证阶段的探针（SDP 查询与发布、OBEX 报文、列表解析、手机能力）源码在 git 历史里，取证结果收在技术方案 §7.1–§7.4，取回方式见技术方案 §7.7。
 
 ## 构建
 

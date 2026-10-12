@@ -28,6 +28,8 @@ colors:
   wait-dark: "#D8AC53"
   danger: "#A93B36"
   danger-dark: "#E0776F"
+  on-accent: "#FFFFFF"
+  on-accent-dark: "#10120F"
 typography:
   window-title:
     fontFamily: "-apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"PingFang SC\", sans-serif"
@@ -55,10 +57,16 @@ typography:
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.5
+  mono:
+    fontFamily: "ui-monospace, \"SF Mono\", Menlo, monospace"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.5
 rounded:
   control: "6px"
   row: "10px"
   panel: "14px"
+  pill: "999px"
 spacing:
   s1: "4px"
   s2: "8px"
@@ -150,7 +158,7 @@ components:
 | `wait` | #8A6A1F | #D8AC53 | 4.8:1 / 8.4:1 |
 | `danger` | #A93B36 | #E0776F | 5.9:1 / 6.0:1 |
 
-`accent-soft` 是主色的浅底，用于选中行与验证码，不用于文字。
+`accent-soft` 是主色的浅底，用于选中行与验证码，不用于文字。`on-accent` 是主色底上的文字色，随主题取值：浅色模式取白，深色模式取近黑，与各自主题下主色的明度匹配。
 
 ## Typography
 
@@ -165,6 +173,7 @@ components:
 | 正文 | 14px / 400 | 短信正文、说明文字 |
 | 强调正文 | 14px / 500 | 发件人、开关标签 |
 | 辅助 | 12px / 400 | 时间、状态、占位符 |
+| 等宽 | 12px / 400 | 验证码、令牌名、代码片段 |
 
 **数字一律等宽**（`font-variant-numeric: tabular-nums`），让时间戳与金额竖着对齐。短信正文是唯一允许长行的内容，上限 68ch；列表行不设上限。
 
@@ -186,11 +195,11 @@ components:
 
 ## Shapes
 
-三档圆角：控件 `6px`、列表行 `10px`、面板 `14px`。
+三档圆角：控件 `6px`、列表行 `10px`、面板 `14px`；胶囊（日期筛选、令牌名）用 `999px`。
 
-**母题：一条链路把两边连起来。** 左边是手机（窄、实心、内容源），右边是 Mac（宽、描边、接收端），中间是链路。这个标记承担三处：App 图标、菜单栏图标、界面里的连接状态指示。
+**母题：一条链路把两边连起来。** 左边是手机（窄、实心、内容源），右边是带底座的显示器（宽、描边、接收端），中间一条横条落在两者的共同中线上。这个标记承担三处：App 图标、菜单栏图标、界面里的连接状态指示。
 
-链路通：实线 + 主色。链路断：虚线 + `ink-tertiary`，两端形状转为描边。菜单栏图标是单色模板图，18pt，随系统明暗自动反相。
+链路通：实线 + 主色。链路断：虚线 + `ink-tertiary`，两端形状转为描边。菜单栏图标是单色模板图，18pt，随系统明暗自动反相，通与断各一张。
 
 图标一律自绘 SVG 或 SF Symbols，线条粗细统一，不用 emoji 或 Unicode 字符充当图标。
 
