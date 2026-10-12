@@ -228,6 +228,39 @@ func drawSmallStrip(_ sizes: [Int], gap: Int = 12) -> CGImage? {
     return ctx.makeImage()
 }
 
+/// 评审图：把各尺寸的 App 图标与两种底、两个状态的菜单栏并排铺开，一张图看完。
+func drawReviewSheet() -> CGImage? {
+    let w = 960, h = 640
+    guard let ctx = makeContext(w, h) else { return nil }
+    let cw = CGFloat(w), ch = CGFloat(h)
+    ctx.setFillColor(rgb((1, 1, 1)))
+    ctx.fill(CGRect(x: 0, y: 0, width: cw, height: ch))
+
+    // 上半：App 图标各尺寸，底对齐
+    let baseline: CGFloat = 320
+    var x: CGFloat = 40
+    for s in [256, 128, 64, 32, 16] {
+        if let img = drawAppIcon(s) {
+            ctx.draw(img, in: CGRect(x: x, y: baseline - CGFloat(s), width: CGFloat(s), height: CGFloat(s)))
+        }
+        x += CGFloat(s) + 24
+    }
+
+    // 下半：菜单栏模板图放在浅色底与深色底上的观感，通与断各一对
+    let light = rgb((0.95, 0.95, 0.95)), dark = rgb((0.16, 0.16, 0.16))
+    let black = rgb((0, 0, 0)), white = rgb((1, 1, 1))
+    var y: CGFloat = 352
+    for (bg, ink, linked) in [(light, black, true), (dark, white, true),
+                              (light, black, false), (dark, white, false)] {
+        if let strip = drawBarStrip(w - 80, 52, bg: bg, ink: ink, linked: linked) {
+            ctx.draw(strip, in: CGRect(x: 40, y: y, width: cw - 80, height: 52))
+        }
+        y += 66
+    }
+
+    return ctx.makeImage()
+}
+
 func writePNG(_ img: CGImage, to path: String) -> Bool {
     let url = URL(fileURLWithPath: path) as CFURL
     guard let dest = CGImageDestinationCreateWithURL(url, "public.png" as CFString, 1, nil) else {
@@ -301,6 +334,7 @@ case "--preview":
     out("bar-light-off.png", drawBarStrip(600, 48, bg: light, ink: black, linked: false))
     out("bar-dark-off.png", drawBarStrip(600, 48, bg: dark, ink: white, linked: false))
     out("small-strip.png", drawSmallStrip([16, 32, 48, 64]))
+    out("sheet.png", drawReviewSheet())
     print("已生成 \(ok)/\(total) 张预览图到 \(outDir)")
 
 default:
