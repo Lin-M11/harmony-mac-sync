@@ -198,7 +198,7 @@ struct MessageWindowView: View {
 
     private var emptyState: some View {
         VStack(spacing: HS.s3) {
-            LinkMark(linked: false, color: .hsLineStrong, width: 132)
+            LinkMark(linked: false, color: .hsLineStrong, width: 112)
             Text(keyword.isEmpty ? "还没有短信" : "没有匹配的短信")
                 .font(.hsSectionTitle)
                 .foregroundStyle(Color.hsInk)

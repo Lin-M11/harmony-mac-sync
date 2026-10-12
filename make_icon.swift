@@ -79,28 +79,29 @@ func roundedPolygon(_ pts: [CGPoint], radius: CGFloat) -> CGPath {
 
 // MARK: - 标记几何
 // 本地坐标以标记包围盒左上角为原点，y 向下。LINK_Y 是共同中线：手机与显示器屏幕都以它居中。
-// 整体比例压到约 1.5:1，好让菜单栏图标落在正方形画布里时占得饱满。
+// 整体比例收到约 1.2:1：手机是三者里最高的，包围盒高度由它定，宽度压到接近这个高度，
+// 这样标记落进正方形画布时能填得满，不至于上下空一大截。
 
-let PHONE_W: CGFloat = 92
-let PHONE_H: CGFloat = 210
-let PHONE_R: CGFloat = 24
+let PHONE_W: CGFloat = 100
+let PHONE_H: CGFloat = 260
+let PHONE_R: CGFloat = 22
 
 let GAP: CGFloat = 8            // 链路两端各留一点呼吸
 
-let LINK_W: CGFloat = 56
-let LINK_T: CGFloat = 20
-let LINK_DASH_ON: CGFloat = 32  // 链路断开时的虚线段
-let LINK_DASH_OFF: CGFloat = 24
+let LINK_W: CGFloat = 48
+let LINK_T: CGFloat = 24
+let LINK_DASH_ON: CGFloat = 28  // 链路断开时的虚线段
+let LINK_DASH_OFF: CGFloat = 22
 
-let MON_W: CGFloat = 152
+let MON_W: CGFloat = 148
 let MON_H: CGFloat = 104
-let MON_R: CGFloat = 18
-let MON_STROKE: CGFloat = 20
+let MON_R: CGFloat = 20
+let MON_STROKE: CGFloat = 24
 
-let STAND_TOP_W: CGFloat = 48
-let STAND_BOT_W: CGFloat = 88
-let STAND_H: CGFloat = 22
-let STAND_R: CGFloat = 10
+let STAND_TOP_W: CGFloat = 50
+let STAND_BOT_W: CGFloat = 92
+let STAND_H: CGFloat = 24
+let STAND_R: CGFloat = 11
 
 let LINK_Y: CGFloat = PHONE_H / 2
 let LINK_X: CGFloat = PHONE_W + GAP
