@@ -59,16 +59,16 @@ extension Font {
 
 // MARK: - 母题
 
-/// 母题：一条链路把两边连起来。
-/// 几何与 App 图标同源（见 make_icon.swift 的标记常量），viewBox 312 × 260。
+/// 母题：手机里冒出一条消息。后层是描边的手机轮廓，前层是带尾巴的实心气泡。
+/// 几何与 App 图标同源（见 make_icon.swift 的标记常量），viewBox 106 × 122。
 struct LinkMark: View {
     var linked: Bool = true
     var color: Color = .hsAccent
     /// 标记宽度，高度按 viewBox 比例推出来
     var width: CGFloat = 22
 
-    private let VBW: CGFloat = 312
-    private let VBH: CGFloat = 260
+    private let VBW: CGFloat = 106
+    private let VBH: CGFloat = 122
 
     var body: some View {
         Canvas { ctx, size in
@@ -83,32 +83,24 @@ struct LinkMark: View {
                      cornerRadius: r * k)
             }
 
-            // 手机：实心
-            ctx.fill(box(0, 0, 100, 260, 22), with: .color(color))
-
-            // 链路：落在共同中线上，通为实心横条、断为虚线
+            // 后层：手机轮廓，通为实线、断为虚线
             if linked {
-                ctx.fill(box(108, 118, 48, 24, 12), with: .color(color))
+                ctx.stroke(box(50, 4, 52, 88, 10), with: .color(color), lineWidth: 8 * k)
             } else {
-                var line = Path()
-                line.move(to: pt(108, 130))
-                line.addLine(to: pt(156, 130))
-                ctx.stroke(line, with: .color(color),
-                           style: StrokeStyle(lineWidth: 24 * k, lineCap: .butt,
-                                              dash: [28 * k, 22 * k]))
+                ctx.stroke(box(50, 4, 52, 88, 10), with: .color(color),
+                           style: StrokeStyle(lineWidth: 8 * k, dash: [12 * k, 9 * k]))
             }
 
-            // 显示器：描边
-            ctx.stroke(box(176, 90, 124, 80, 8), with: .color(color), lineWidth: 24 * k)
+            // 前层：气泡
+            ctx.fill(box(0, 40, 88, 58, 16), with: .color(color))
 
-            // 底座：梯形
-            var stand = Path()
-            stand.move(to: pt(213, 182))
-            stand.addLine(to: pt(263, 182))
-            stand.addLine(to: pt(284, 206))
-            stand.addLine(to: pt(192, 206))
-            stand.closeSubpath()
-            ctx.fill(stand, with: .color(color))
+            // 前层：气泡的尾巴
+            var tail = Path()
+            tail.move(to: pt(16, 96))
+            tail.addLine(to: pt(16, 122))
+            tail.addLine(to: pt(40, 96))
+            tail.closeSubpath()
+            ctx.fill(tail, with: .color(color))
         }
         .frame(width: width, height: width * VBH / VBW)
         .accessibilityHidden(true)

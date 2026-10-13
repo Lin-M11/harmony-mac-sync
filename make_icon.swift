@@ -4,9 +4,9 @@ import ImageIO
 
 // 生成 App 图标与菜单栏模板图。
 //
-// 母题：一条链路把两边连起来。左边手机（实心、内容源），右边显示器带底座（描边、接收端），
-// 中间一条横条落在共同中线上。App 图标用深松绿超椭圆底加暖白标记；菜单栏图标只用同一标记，
-// 纯黑加透明，由系统按菜单栏明暗反相。
+// 母题：手机里冒出一条消息。后层是描边的手机轮廓，前层是带尾巴的实心气泡压在左下。
+// App 图标用深松绿超椭圆底加暖白标记；菜单栏图标只用同一标记，纯黑加透明，
+// 由系统按菜单栏明暗反相。
 //
 // 用法：
 //   ./MakeIcon <输出目录.iconset>   生成 App 图标十张
@@ -78,82 +78,66 @@ func roundedPolygon(_ pts: [CGPoint], radius: CGFloat) -> CGPath {
 }
 
 // MARK: - 标记几何
-// 本地坐标以标记包围盒左上角为原点，y 向下。LINK_Y 是共同中线：手机与显示器屏幕都以它居中。
-// 整体比例收到约 1.2:1：手机是三者里最高的，包围盒高度由它定，宽度压到接近这个高度，
-// 这样标记落进正方形画布时能填得满，不至于上下空一大截。
+// 本地坐标以标记包围盒左上角为原点，y 向下。
+// 两层：后层是描边的手机轮廓（偏右上），前层是带尾巴的实心气泡（偏左下，压住手机下半部分）。
+// 读起来是「手机里冒出一条消息」。包围盒约 0.87:1，落进正方形画布能填得比较满。
 
-let PHONE_W: CGFloat = 100
-let PHONE_H: CGFloat = 260
-let PHONE_R: CGFloat = 22
+let PHONE_W: CGFloat = 60
+let PHONE_H: CGFloat = 96
+let PHONE_R: CGFloat = 14
+let PHONE_STROKE: CGFloat = 8
+let PHONE_DASH_ON: CGFloat = 12   // 链路断时手机轮廓走虚线
+let PHONE_DASH_OFF: CGFloat = 9
 
-let GAP: CGFloat = 8            // 链路两端各留一点呼吸
+let BUB_W: CGFloat = 88
+let BUB_H: CGFloat = 58
+let BUB_R: CGFloat = 16
+let BUB_TAIL_X: CGFloat = 16      // 尾巴左沿距气泡左沿
+let BUB_TAIL_W: CGFloat = 24      // 尾巴在底边上占的宽度
+let BUB_TAIL_H: CGFloat = 24      // 尾巴伸出的高度
+let BUB_TAIL_R: CGFloat = 4
 
-let LINK_W: CGFloat = 48
-let LINK_T: CGFloat = 24
-let LINK_DASH_ON: CGFloat = 28  // 链路断开时的虚线段
-let LINK_DASH_OFF: CGFloat = 22
+let PHONE_X: CGFloat = 46         // 手机左沿
+let PHONE_Y: CGFloat = 0
+let BUB_X: CGFloat = 0            // 气泡左沿
+let BUB_Y: CGFloat = 40
 
-let MON_W: CGFloat = 148
-let MON_H: CGFloat = 104
-let MON_R: CGFloat = 20
-let MON_STROKE: CGFloat = 24
-
-let STAND_TOP_W: CGFloat = 50
-let STAND_BOT_W: CGFloat = 92
-let STAND_H: CGFloat = 24
-let STAND_R: CGFloat = 11
-
-let LINK_Y: CGFloat = PHONE_H / 2
-let LINK_X: CGFloat = PHONE_W + GAP
-let MON_X: CGFloat = LINK_X + LINK_W + GAP
-let STAND_TOP_Y: CGFloat = LINK_Y + MON_H / 2
-
-let MARK_W: CGFloat = PHONE_W + GAP + LINK_W + GAP + MON_W
-let MARK_H: CGFloat = max(PHONE_H, STAND_TOP_Y + STAND_H)
+let MARK_W: CGFloat = PHONE_X + PHONE_W
+let MARK_H: CGFloat = BUB_Y + BUB_H + BUB_TAIL_H
 
 /// 在当前坐标系下画标记，坐标系需已按 MARK_W × MARK_H 摆好。
-/// linked 为假时链路画成虚线，表示两边没接上。
+/// linked 为假时手机轮廓走虚线，表示两边没接上。
 func drawMark(_ ctx: CGContext, color: CGColor, linked: Bool = true) {
     ctx.setFillColor(color)
     ctx.setStrokeColor(color)
 
-    // 手机：实心圆角矩形
-    ctx.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: PHONE_W, height: PHONE_H),
-                       cornerWidth: PHONE_R, cornerHeight: PHONE_R, transform: nil))
+    // 后层：手机轮廓，外沿与 PHONE_W × PHONE_H 对齐
+    let inset = PHONE_STROKE / 2
+    let phone = CGRect(x: PHONE_X + inset, y: PHONE_Y + inset,
+                       width: PHONE_W - PHONE_STROKE, height: PHONE_H - PHONE_STROKE)
+    ctx.saveGState()
+    ctx.setLineWidth(PHONE_STROKE)
+    if !linked {
+        ctx.setLineDash(phase: 0, lengths: [PHONE_DASH_ON, PHONE_DASH_OFF])
+    }
+    ctx.addPath(CGPath(roundedRect: phone,
+                       cornerWidth: PHONE_R - inset, cornerHeight: PHONE_R - inset, transform: nil))
+    ctx.strokePath()
+    ctx.restoreGState()
+
+    // 前层：气泡
+    ctx.addPath(CGPath(roundedRect: CGRect(x: BUB_X, y: BUB_Y, width: BUB_W, height: BUB_H),
+                       cornerWidth: BUB_R, cornerHeight: BUB_R, transform: nil))
     ctx.fillPath()
 
-    // 链路：落在共同中线上的横条
-    if linked {
-        ctx.fill(CGRect(x: LINK_X, y: LINK_Y - LINK_T / 2, width: LINK_W, height: LINK_T))
-    } else {
-        ctx.saveGState()
-        ctx.setLineDash(phase: 0, lengths: [LINK_DASH_ON, LINK_DASH_OFF])
-        ctx.setLineWidth(LINK_T)
-        ctx.setLineCap(.butt)
-        ctx.move(to: CGPoint(x: LINK_X, y: LINK_Y))
-        ctx.addLine(to: CGPoint(x: LINK_X + LINK_W, y: LINK_Y))
-        ctx.strokePath()
-        ctx.restoreGState()
-    }
-
-    // 显示器：描边圆角矩形，外沿与 MON_W × MON_H 对齐
-    let inset = MON_STROKE / 2
-    let screen = CGRect(x: MON_X + inset, y: LINK_Y - MON_H / 2 + inset,
-                        width: MON_W - MON_STROKE, height: MON_H - MON_STROKE)
-    ctx.setLineWidth(MON_STROKE)
-    ctx.addPath(CGPath(roundedRect: screen,
-                       cornerWidth: MON_R - inset, cornerHeight: MON_R - inset, transform: nil))
-    ctx.strokePath()
-
-    // 底座：上窄下宽的梯形，四角圆角
-    let cx = MON_X + MON_W / 2
-    let stand = [
-        CGPoint(x: cx - STAND_TOP_W / 2, y: STAND_TOP_Y),
-        CGPoint(x: cx + STAND_TOP_W / 2, y: STAND_TOP_Y),
-        CGPoint(x: cx + STAND_BOT_W / 2, y: STAND_TOP_Y + STAND_H),
-        CGPoint(x: cx - STAND_BOT_W / 2, y: STAND_TOP_Y + STAND_H),
+    // 前层：气泡的尾巴，压在底边偏左
+    let bottom = BUB_Y + BUB_H
+    let tail = [
+        CGPoint(x: BUB_X + BUB_TAIL_X, y: bottom - 2),
+        CGPoint(x: BUB_X + BUB_TAIL_X, y: bottom + BUB_TAIL_H),
+        CGPoint(x: BUB_X + BUB_TAIL_X + BUB_TAIL_W, y: bottom - 2),
     ]
-    ctx.addPath(roundedPolygon(stand, radius: STAND_R))
+    ctx.addPath(roundedPolygon(tail, radius: BUB_TAIL_R))
     ctx.fillPath()
 }
 
@@ -183,7 +167,8 @@ func drawAppIcon(_ size: Int) -> CGImage? {
     ctx.fillPath()
 
     ctx.saveGState()
-    let boxW = tile * 0.84, boxH = tile * 0.68
+    let boxH = tile * 0.74
+    let boxW = boxH * MARK_W / MARK_H
     drawMarkInBox(ctx, originX: (s - boxW) / 2, originY: (s - boxH) / 2,
                   boxW: boxW, boxH: boxH, color: rgb(OFFWHITE))
     ctx.restoreGState()
