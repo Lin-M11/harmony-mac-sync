@@ -59,16 +59,16 @@ extension Font {
 
 // MARK: - 母题
 
-/// 母题：手机里冒出一条消息。后层是描边的手机轮廓，前层是带尾巴的实心气泡。
-/// 几何与 App 图标同源（见 make_icon.swift 的标记常量），viewBox 106 × 122。
+/// 母题：一条消息叠在另一条上。后层是描边气泡，前层是带尾巴的实心气泡。
+/// 几何与 App 图标同源（见 make_icon.swift 的标记常量），viewBox 94 × 104。
 struct LinkMark: View {
     var linked: Bool = true
     var color: Color = .hsAccent
     /// 标记宽度，高度按 viewBox 比例推出来
     var width: CGFloat = 22
 
-    private let VBW: CGFloat = 106
-    private let VBH: CGFloat = 122
+    private let VBW: CGFloat = 94
+    private let VBH: CGFloat = 104
 
     var body: some View {
         Canvas { ctx, size in
@@ -83,22 +83,22 @@ struct LinkMark: View {
                      cornerRadius: r * k)
             }
 
-            // 后层：手机轮廓，通为实线、断为虚线
+            // 后层：描边气泡，通为实线、断为虚线
             if linked {
-                ctx.stroke(box(50, 4, 52, 88, 10), with: .color(color), lineWidth: 8 * k)
+                ctx.stroke(box(42, 4, 48, 34, 8), with: .color(color), lineWidth: 8 * k)
             } else {
-                ctx.stroke(box(50, 4, 52, 88, 10), with: .color(color),
+                ctx.stroke(box(42, 4, 48, 34, 8), with: .color(color),
                            style: StrokeStyle(lineWidth: 8 * k, dash: [12 * k, 9 * k]))
             }
 
-            // 前层：气泡
-            ctx.fill(box(0, 40, 88, 58, 16), with: .color(color))
+            // 前层：实心气泡
+            ctx.fill(box(0, 30, 80, 54, 15), with: .color(color))
 
             // 前层：气泡的尾巴
             var tail = Path()
-            tail.move(to: pt(16, 96))
-            tail.addLine(to: pt(16, 122))
-            tail.addLine(to: pt(40, 96))
+            tail.move(to: pt(14, 80))
+            tail.addLine(to: pt(14, 104))
+            tail.addLine(to: pt(38, 80))
             tail.closeSubpath()
             ctx.fill(tail, with: .color(color))
         }
