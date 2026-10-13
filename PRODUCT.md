@@ -60,7 +60,7 @@ delegated: 原生 SwiftUI（macOS 菜单栏应用）。开发机没有 Xcode，�
 ## Brand Commitments
 
 - 名字：`HarmonySync`（App 名），显示名「鸿蒙短信同步」。已确认采用
-- 图标：本轮重绘，同时保留菜单栏用的单色模板图
+- 图标：深松绿底 + 暖白标记（双层气泡）；菜单栏另有单色模板图，链路通 / 断各一套
 
 ## Evidence on Hand
 
